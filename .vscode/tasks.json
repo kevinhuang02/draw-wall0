@@ -1,0 +1,11 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "Live Preview",
+			"workspacePath": "c:\\story_generate",
+			"problemMatcher": [],
+			"label": "Live Preview: 執行伺服器"
+		}
+	]
+}

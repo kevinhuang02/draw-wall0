@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+qrcode
+pillow
+gunicorn
+websockets
+openai
