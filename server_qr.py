@@ -1,15 +1,16 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
-import os
+from fastapi.middleware.cors import CORSMiddlewareimport 
+from fastapi.responses import FileResponse
 import uvicorn
+import os
 import logging
 import json
 import asyncio
 import socket
 import tempfile
 import qrcode
-import random   # <── 新增
+import random  
 
 # ---------- Logging ----------
 logging.basicConfig(level=logging.INFO)
@@ -100,9 +101,22 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
                 del rooms[room_id]
 
 # ---------- HTTP ----------
-@app.get("/")
-async def root():
-    return {"message": "Local FastAPI Server is running!"}
+# ---------- HTTP ----------
+# @app.get("/") # 移除原本的根路由
+# async def root():
+#     return {"message": "Local FastAPI Server is running!"}
+
+# 新增根路由：回傳 index.html
+@app.get("/", include_in_schema=False) # include_in_schema=False 避免它出現在 API 文件
+async def index_html():
+    file_path = os.path.join(STATIC_DIR, "index.html")
+    
+    if os.path.exists(file_path):
+        # 使用 FileResponse 回傳位於 static 資料夾內的 index.html
+        return FileResponse(file_path, media_type="text/html")
+    else:
+        # 如果找不到檔案，回傳錯誤訊息
+        return {"error": "Index file not found in static directory"}, 404
 
 @app.get("/health")
 async def health_check():
