@@ -83,7 +83,17 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
 
     # ➤ 新增：新成員加入時送出隨機主題
     topic = get_random_topic()
-    await websocket.send_text(json.dumps({"type": "topic", "value": topic}))
+    data = await websocket.send_text(json.dumps({"type": "topic", "value": topic}))
+    msg = json.loads(data) # 解析收到的 JSON 數據
+
+    if msg.get("type") == "generateTheme":
+        topic = get_random_topic()
+        topic_msg = json.dumps({"type": "topic", "value": topic})
+        await broadcast(room_id, topic_msg) # 廣播給房間內所有人
+        logger.info(f"Broadcasted new random topic: {topic}")
+    else:
+        # 處理繪圖數據，進行廣播
+        await broadcast(room_id, data)
     logger.info(f"Sent random topic to new user: {topic}")
 
     try:
