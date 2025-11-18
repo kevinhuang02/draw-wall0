@@ -3,26 +3,158 @@
 <head>
   <meta charset="UTF-8" />
   <title>電視牆</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
-    body { background: #000; text-align: center; margin: 0; }
-    canvas { background: #fff; margin-top: 10px; }
+    body { background: #000; text-align: center; margin: 0; color: #fff; }
+    header { padding: 10px 0; }
+    #controls { margin-bottom: 8px; }
+    canvas { background: #fff; display:block; margin: 0 auto 20px; box-shadow: 0 4px 14px rgba(0,0,0,0.6); }
+    #status { font-size: 13px; opacity: 0.8; }
   </style>
 </head>
 <body>
-  <h1 style="color: white;">🖼️ 電視牆顯示區</h1>
-  <canvas id="tv" width="800" height="800"></canvas>
+  <header>
+    <h1>🖼️ 電視牆顯示區</h1>
+    <div id="controls">
+      <span id="status">連線中...</span>
+      &nbsp;|&nbsp;
+      放大倍率: <select id="pixelScale"><option value="2">2x</option><option value="4" selected>4x</option><option value="8">8x</option></select>
+      &nbsp;|&nbsp;
+      <button id="clearBtn">清除畫面</button>
+    </div>
+  </header>
 
-  <script src="script.js"></script>
-  <script>
-    const canvas = document.getElementById("tv");
-    const ctx = canvas.getContext("2d");
+  <canvas id="tv"></canvas>
 
-    function handleMessage(data) {
-      if (data.type === "draw") {
-        ctx.fillStyle = "#000";
-        ctx.fillRect(data.x * 2, data.y * 2, 8, 8); // 放大顯示
+<script>
+(function(){
+  const canvas = document.getElementById('tv');
+  const ctx = canvas.getContext('2d');
+  const statusEl = document.getElementById('status');
+  const pixelScaleSelect = document.getElementById('pixelScale');
+  const clearBtn = document.getElementById('clearBtn');
+
+  // 基礎「邏輯畫布」尺寸（以像素格為單位）
+  // 你可以改成 200x200 或更大，視顯示與網路頻寬需求
+  const LOGICAL_W = 200;
+  const LOGICAL_H = 200;
+
+  // 設定畫布實際大小（依 devicePixelRatio 與 scale）
+  let pixelScale = parseInt(pixelScaleSelect.value, 10) || 4;
+  function resizeCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    const displayW = LOGICAL_W * pixelScale;
+    const displayH = LOGICAL_H * pixelScale;
+    canvas.style.width = displayW + 'px';
+    canvas.style.height = displayH + 'px';
+    canvas.width = Math.floor(displayW * dpr);
+    canvas.height = Math.floor(displayH * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // 支援高 DPI
+    // 背景白
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0,0, displayW, displayH);
+  }
+  pixelScaleSelect.addEventListener('change', () => {
+    pixelScale = parseInt(pixelScaleSelect.value, 10) || 4;
+    resizeCanvas();
+  });
+
+  // 清除畫面
+  function clearCanvas() {
+    const displayW = LOGICAL_W * pixelScale;
+    const displayH = LOGICAL_H * pixelScale;
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0,0, displayW, displayH);
+  }
+  clearBtn.addEventListener('click', () => {
+    clearCanvas();
+  });
+
+  // 繪製單一點（以邏輯座標 x,y 為基準）
+  function drawPixel(x, y, color, size = 1) {
+    // color 可能為 "#000000" 或 rgba，size 以邏輯單位為準
+    ctx.fillStyle = color || '#000';
+    ctx.fillRect(Math.floor(x * pixelScale), Math.floor(y * pixelScale),
+                 Math.max(1, Math.floor(size * pixelScale)),
+                 Math.max(1, Math.floor(size * pixelScale)));
+  }
+
+  // 畫 continuous stroke 的簡易程式（用最簡單的放大畫方塊）
+  // 支援來自 begin/draw/end 或簡單 draw 點訊息
+  const activeStrokes = {}; // stroke_id -> last point
+  function handleBegin(msg) {
+    // msg: {type:'begin', x, y, color, width, stroke_id}
+    activeStrokes[msg.stroke_id] = { x: msg.x, y: msg.y, color: msg.color, width: msg.width };
+    // 畫起點
+    drawPixel(msg.x, msg.y, msg.color || '#000', msg.width || 1);
+  }
+  function handleDraw(msg) {
+    // msg: {type:'draw', x, y, stroke_id, color?, width?}
+    if (msg.stroke_id && activeStrokes[msg.stroke_id]) {
+      // 簡單地在當前座標畫點（電視牆用方塊更醒目）
+      const s = activeStrokes[msg.stroke_id];
+      drawPixel(msg.x, msg.y, s.color || msg.color || '#000', s.width || msg.width || 1);
+      s.x = msg.x; s.y = msg.y;
+    } else {
+      // 如果是單點 draw（沒有 stroke_id），直接畫
+      if (typeof msg.x === 'number' && typeof msg.y === 'number') {
+        const color = msg.color || '#000';
+        const width = msg.width || msg.size || 1;
+        drawPixel(msg.x, msg.y, color, width);
       }
     }
-  </script>
+  }
+  function handleEnd(msg) {
+    // msg: {type:'end', stroke_id}
+    if (msg.stroke_id) delete activeStrokes[msg.stroke_id];
+  }
+
+  // 解析來自 WebSocket 的訊息
+  function onWsMessage(evt) {
+    let msg;
+    try { msg = JSON.parse(evt.data); } catch(e) { return; }
+    // 支援多種格式：begin/draw/end 或 type:'draw' 有 x,y,color,width
+    if (msg.type === 'begin') handleBegin(msg);
+    else if (msg.type === 'draw') handleDraw(msg);
+    else if (msg.type === 'end') handleEnd(msg);
+    else if (msg.type === 'clear') clearCanvas();
+    else if (msg.type === 'frame' && Array.isArray(msg.pixels)) {
+      // 可選：一次接收整個像素陣列（每項 {x,y,color}）
+      msg.pixels.forEach(p => drawPixel(p.x, p.y, p.color || '#000', p.size || 1));
+    }
+  }
+
+  // WebSocket 連線（連到 /ws/tv 房間）
+  const host = location.hostname;
+  const port = 8000; // 若你的 server port 不同，改這裡
+  const wsUrl = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${host}:${port}/ws/tv`;
+  const socket = new WebSocket(wsUrl);
+
+  socket.addEventListener('open', () => {
+    statusEl.textContent = '已連線到 TV（房間: tv）';
+    statusEl.style.color = '#8f8';
+    // 可向 server 註冊：{type:'join', user:'tv-display'}
+    socket.send(JSON.stringify({ type:'join', user: 'tv-display' }));
+  });
+  socket.addEventListener('message', onWsMessage);
+  socket.addEventListener('close', () => {
+    statusEl.textContent = 'WebSocket 已斷線';
+    statusEl.style.color = '#f88';
+  });
+  socket.addEventListener('error', () => {
+    statusEl.textContent = 'WebSocket 錯誤';
+    statusEl.style.color = '#f88';
+  });
+
+  // 初始設定
+  resizeCanvas();
+  clearCanvas();
+  // 確保畫布在視窗改變時重新計算大小
+  window.addEventListener('resize', () => {
+    resizeCanvas();
+    // 不要自動清除內容，以免放大後失真；若要重新渲染，server 需要重傳 frame
+  });
+})();
+</script>
 </body>
 </html>

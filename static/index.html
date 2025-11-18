@@ -1,174 +1,145 @@
 <!doctype html>
 <html lang="zh-TW">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>多人畫畫（Collaborative Draw）</title>
-<style>
-  html,body {
-    height:100%; margin:0; background:#222; color:#fff;
-    font-family: sans-serif;
-  }
-  #canvas {
-    touch-action: none;
-    display:block;
-    width:100%;
-    height: calc(100vh - 64px);
-    background:#fff;
-  }
-  header {
-    height:64px; display:flex; gap:8px; align-items:center;
-    padding:8px; background:#111; color:#fff;
-  }
-  .controls {margin-left:auto;}
-  button {padding:6px 10px;}
-  #eraserBtn.active {
-    background:#f33;
-    color:#fff;
-  }
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>多人畫畫 (Local)</title>
+  <style>
+    body { margin:0; background:#222; color:#fff; font-family:sans-serif; }
+    #toolbar {
+      display:flex; gap:10px; padding:10px; background:#333;
+      align-items:center;
+    }
+    #canvas {
+      display:block;
+      background:#fff;
+      touch-action:none;
+    }
+    button, input[type=color], input[type=range] {
+      padding:6px;
+      border-radius:6px;
+      border:none;
+    }
+    button { cursor:pointer; }
+  </style>
 </head>
 <body>
-<header>
-  <div>Room: <span id="roomLabel"></span></div>
-  <div class="controls">
-    <input id="color" type="color" value="#000000"/>
-    <input id="width" type="range" min="1" max="30" value="4"/>
-    <button id="eraserBtn">橡皮擦</button>
-    <button id="clearBtn">清除</button>
-  </div>
-</header>
+
+<div id="toolbar">
+  <button id="pen">✏️ 筆刷</button>
+  <button id="eraser">🧽 橡皮擦</button>
+  <input type="color" id="colorPicker" value="#000000">
+  <input type="range" id="sizePicker" min="2" max="40" value="5">
+  <button id="clear">🗑️ 全部清除</button>
+  <button id="aiTheme">🎲 生成主題</button>
+  <span id="themeText" style="margin-left:20px; font-size:18px;"></span>
+</div>
 
 <canvas id="canvas"></canvas>
 
 <script>
+// ---------- URL 參數 ----------
 const params = new URLSearchParams(location.search);
-const room = params.get('room') || 'default';
-const name = params.get('name') || 'guest' + Math.floor(Math.random()*1000);
-document.getElementById('roomLabel').textContent = room;
+const room = params.get("room") || "room1";
+const name = params.get("name") || "User";
 
-const ws = new WebSocket(`${location.protocol.replace('http','ws')}//${location.host}/ws/${encodeURIComponent(room)}?name=${encodeURIComponent(name)}`);
-ws.addEventListener('open', ()=> {
-  ws.send(JSON.stringify({type:'join', user: name}));
-});
+// ---------- Canvas ----------
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
 
-const canvas = document.getElementById('canvas');
-const ctx = canvas.getContext('2d', { willReadFrequently: false });
-
-function resize(){
-  canvas.width = Math.floor(window.innerWidth * devicePixelRatio);
-  canvas.height = Math.floor((window.innerHeight - 64) * devicePixelRatio);
-  canvas.style.width = window.innerWidth + 'px';
-  canvas.style.height = (window.innerHeight - 64) + 'px';
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
-  ctx.scale(devicePixelRatio, devicePixelRatio);
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight - 60;
 }
 resize();
-window.addEventListener('resize', resize);
+window.onresize = resize;
 
 let drawing = false;
-let currentStrokeId = null;
-let isEraser = false; // 是否為橡皮擦模式
+let mode = "pen";
+let color = document.getElementById("colorPicker").value;
+let size = document.getElementById("sizePicker").value;
 
-const colorInput = document.getElementById('color');
-const widthInput = document.getElementById('width');
-const eraserBtn = document.getElementById('eraserBtn');
-eraserBtn.addEventListener('click', () => {
-  isEraser = !isEraser;
-  eraserBtn.classList.toggle('active', isEraser);
-});
+// ---------- 工具列 ----------
+document.getElementById("pen").onclick = () => mode = "pen";
+document.getElementById("eraser").onclick = () => mode = "eraser";
+document.getElementById("colorPicker").oninput = e => color = e.target.value;
+document.getElementById("sizePicker").oninput = e => size = e.target.value;
 
-function getPos(e){
-  const rect = canvas.getBoundingClientRect();
-  const x = (e.clientX ?? e.touches[0].clientX) - rect.left;
-  const y = (e.clientY ?? e.touches[0].clientY) - rect.top;
-  return { x, y };
-}
-
-canvas.addEventListener('pointerdown', (e) => {
-  e.preventDefault();
-  drawing = true;
-  currentStrokeId = Math.random().toString(36).slice(2,9);
-  const p = getPos(e);
-  const msg = {
-    type:'begin',
-    x: p.x, y: p.y,
-    color: isEraser ? '#FFFFFF' : colorInput.value,
-    width: parseFloat(widthInput.value),
-    stroke_id: currentStrokeId,
-    user: name
-  };
-  ws.send(JSON.stringify(msg));
-  drawBegin(msg, true);
-});
-
-canvas.addEventListener('pointermove', (e) => {
-  if (!drawing) return;
-  e.preventDefault();
-  const p = getPos(e);
-  const msg = { type:'draw', x:p.x, y:p.y, stroke_id: currentStrokeId };
-  ws.send(JSON.stringify(msg));
-  drawPoint(msg, true);
-});
-
-window.addEventListener('pointerup', (e) => {
-  if (!drawing) return;
-  drawing = false;
-  ws.send(JSON.stringify({type:'end', stroke_id: currentStrokeId}));
-  currentStrokeId = null;
-});
-
-// --- 繪圖資料結構 ---
-const strokes = {}; // stroke_id -> {last:{x,y}, color, width}
-
-function drawBegin(msg, local=false){
-  strokes[msg.stroke_id] = { last: {x: msg.x, y: msg.y}, color: msg.color, width: msg.width };
-  ctx.beginPath();
-  ctx.moveTo(msg.x, msg.y);
-  ctx.lineWidth = msg.width;
-  ctx.strokeStyle = msg.color;
-  ctx.lineTo(msg.x + 0.1, msg.y + 0.1);
-  ctx.stroke();
-}
-
-function drawPoint(msg, local=false){
-  const s = strokes[msg.stroke_id];
-  if (!s) return;
-  ctx.beginPath();
-  ctx.lineWidth = s.width;
-  ctx.strokeStyle = s.color;
-  ctx.moveTo(s.last.x, s.last.y);
-  ctx.lineTo(msg.x, msg.y);
-  ctx.stroke();
-  s.last.x = msg.x; s.last.y = msg.y;
-}
-
-function endStroke(msg){
-  delete strokes[msg.stroke_id];
-}
-
-ws.addEventListener('message', (ev) => {
-  try {
-    const msg = JSON.parse(ev.data);
-    if (msg.type === 'begin') drawBegin(msg, false);
-    else if (msg.type === 'draw') drawPoint(msg, false);
-    else if (msg.type === 'end') endStroke(msg);
-    else if (msg.type === 'clear') clearCanvas();
-  } catch(e){ console.error(e); }
-});
-
-function clearCanvas(){
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-}
-
-document.getElementById('clearBtn').onclick = () => {
-  ws.send(JSON.stringify({type:'clear', user: name}));
-  clearCanvas();
+document.getElementById("clear").onclick = () => {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  send({ type: "clear" });
 };
+
+document.getElementById("aiTheme").onclick = () => {
+  send({ type: "generateTheme" });
+};
+
+// ---------- WebSocket ----------
+const ws = new WebSocket(`ws://${location.hostname}:8000/ws/${room}`);
+
+ws.onmessage = (ev) => {
+  const msg = JSON.parse(ev.data);
+
+  if (msg.type === "draw") {
+    drawFromServer(msg);
+  }
+  else if (msg.type === "clear") {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+  }
+  else if (msg.type === "topic") {
+    // ★ 修正：正確使用 msg.value
+    document.getElementById("themeText").textContent =
+      "🎨 主題：" + msg.value;
+  }
+};
+
+function send(data) {
+  ws.send(JSON.stringify(data));
+}
+
+// ---------- 本機畫 ----------
+function draw(x, y) {
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = size;
+  ctx.strokeStyle = (mode === "pen") ? color : "#ffffff";
+  ctx.lineTo(x, y);
+  ctx.stroke();
+}
+
+canvas.onpointerdown = e => {
+  drawing = true;
+  ctx.beginPath();
+  ctx.moveTo(e.offsetX, e.offsetY);
+  send({ type:"draw", mode, color, size, x:e.offsetX, y:e.offsetY, begin:true });
+};
+
+canvas.onpointermove = e => {
+  if (!drawing) return;
+  draw(e.offsetX, e.offsetY);
+  send({ type:"draw", mode, color, size, x:e.offsetX, y:e.offsetY });
+};
+
+canvas.onpointerup = () => drawing = false;
+canvas.onpointerleave = () => drawing = false;
+
+// ---------- Server 畫 ----------
+function drawFromServer(m) {
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = m.size;
+  ctx.strokeStyle = (m.mode === "pen") ? m.color : "#ffffff";
+  if (m.begin) ctx.beginPath();
+  ctx.lineTo(m.x, m.y);
+  ctx.stroke();
+}
 </script>
+
 </body>
 </html>
 
+
+
+<!-- Final integrated version placeholder or initial integration complete -->
 
 
