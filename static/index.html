@@ -75,7 +75,9 @@ document.getElementById("aiTheme").onclick = () => {
 };
 
 // ---------- WebSocket ----------
-const ws = new WebSocket(`ws://${location.hostname}:8000/ws/${room}`);
+const ws = new WebSocket(
+  `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/${room}`
+);
 
 ws.onmessage = (ev) => {
   const msg = JSON.parse(ev.data);
