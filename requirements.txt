@@ -1,6 +1,7 @@
 fastapi
-uvicorn
+uvicorn[standard]
 python-multipart
 jinja2
 qrcode
-pillow
+Pillow
+aiofiles
