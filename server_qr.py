@@ -145,6 +145,10 @@ def qr_room(room: str, name: str = "User"):
     buf.seek(0)
     return StreamingResponse(buf, media_type="image/png")
 
+@app.get("/env")
+def show_env():
+    return {"RENDER_EXTERNAL_URL": os.environ.get("RENDER_EXTERNAL_URL")} 
+
 @app.get("/health")
 def health():
     return {"status": "ok"}

@@ -1,12 +1,11 @@
 services:
   - type: web
-    name: drawing-ws
+    name: fastapi-draw-server
     env: python
-    region: oregon
     plan: free
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
+    startCommand: "uvicorn server_qr:app --host 0.0.0.0 --port $PORT"
     envVars:
-      - key: PORT
-        value: 10000
+      - key: RENDER_EXTERNAL_URL
+        value: "https://draw-wall0-5.onrender.com/"
 
