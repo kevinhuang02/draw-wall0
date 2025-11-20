@@ -3,26 +3,25 @@ import json
 import logging
 import random
 from typing import Dict, Set
+import os
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("whiteboard_server")
 
 app = FastAPI()
 
-# 掛載 static 資料夾，index.html 放在 static/ 內
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
+# ---------- 靜態檔案 ----------
+# 將 static 資料夾掛在 /static
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# 房間 -> websocket 集合
+# ---------- 房間管理 ----------
 rooms: Dict[str, Set[WebSocket]] = {}
-
-# websocket -> meta (room, name)
 conn_meta: Dict[WebSocket, Dict] = {}
 
-# 範例主題池
 THEME_POOL = [
     "海底世界", "未來城市", "宇宙探險", "可愛動物派對",
     "秋天風景", "抽象線條", "童話城堡", "超級英雄大集合",
@@ -30,7 +29,7 @@ THEME_POOL = [
     "美食嘉年華", "運動會", "音樂節"
 ]
 
-# ========= helper =========
+# ---------- helper ----------
 async def broadcast_to_room(room: str, message: dict, exclude: WebSocket = None):
     """廣播訊息給房間所有人，可排除發送者"""
     if room not in rooms:
@@ -49,7 +48,7 @@ async def broadcast_to_room(room: str, message: dict, exclude: WebSocket = None)
         rooms[room].discard(ws)
         conn_meta.pop(ws, None)
 
-# ========= WebSocket =========
+# ---------- WebSocket ----------
 @app.websocket("/ws/{room}")
 async def websocket_endpoint(websocket: WebSocket, room: str):
     await websocket.accept()
@@ -71,8 +70,8 @@ async def websocket_endpoint(websocket: WebSocket, room: str):
 
             sender = msg.get("sender") or "anon"
             conn_meta[websocket]["name"] = sender
-
             mtype = msg.get("type")
+
             if mtype == "draw":
                 out = {
                     "type": "draw",
@@ -114,17 +113,18 @@ async def websocket_endpoint(websocket: WebSocket, room: str):
         except Exception:
             pass
 
-# ========= /qr-room/{room} =========
+# ---------- 首頁 ----------
+@app.get("/")
+async def root():
+    return FileResponse(os.path.join("static", "index.html"))
+
+# ---------- /qr-room/<room> ----------
 @app.get("/qr-room/{room_name}")
 async def qr_room_redirect(room_name: str):
-    """
-    訪問 /qr-room/<room_name> 時，
-    自動導向 index.html 並附上 ?room=<room_name>
-    """
     redirect_url = f"/index.html?room={room_name}"
     return RedirectResponse(redirect_url)
 
-# ========= Health / Info =========
+# ---------- Health / Info ----------
 @app.get("/health")
 async def health():
     return {"status": "ok"}
@@ -137,10 +137,10 @@ async def info():
         "notes": "Put your front-end static files in /static and connect to ws://host/ws/<room>"
     }
 
-# ========= 啟動 =========
+# ---------- 啟動 ----------
 if __name__ == "__main__":
     import uvicorn
-    import os
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("server_qr:app", host="0.0.0.0", port=port, reload=True)
+
 
