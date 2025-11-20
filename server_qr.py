@@ -3,32 +3,26 @@ import json
 import logging
 import random
 from typing import Dict, Set
-from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("whiteboard_server")
 
 app = FastAPI()
 
-# ---------- CORS (開發用，上線可鎖 domain) ----------
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],          # 若要鎖 domain，改成 ["https://yourdomain.com"]
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# 掛載 static 資料夾，index.html 放在 static/ 內
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
-# 房間 -> set of websocket connections
+# 房間 -> websocket 集合
 rooms: Dict[str, Set[WebSocket]] = {}
+
 # websocket -> meta (room, name)
 conn_meta: Dict[WebSocket, Dict] = {}
 
+# 範例主題池
 THEME_POOL = [
     "海底世界", "未來城市", "宇宙探險", "可愛動物派對",
     "秋天風景", "抽象線條", "童話城堡", "超級英雄大集合",
@@ -36,33 +30,34 @@ THEME_POOL = [
     "美食嘉年華", "運動會", "音樂節"
 ]
 
-# ---------- helper ----------
+# ========= helper =========
 async def broadcast_to_room(room: str, message: dict, exclude: WebSocket = None):
+    """廣播訊息給房間所有人，可排除發送者"""
     if room not in rooms:
         return
     data = json.dumps(message)
     to_remove = []
-    for ws in list(rooms[room]):  # copy to avoid mutation during iteration
+    for ws in rooms[room]:
         if ws is exclude:
             continue
         try:
             await ws.send_text(data)
         except Exception as e:
-            logger.warning("廣播失敗，標記為移除: %s", e)
+            logger.warning("廣播失敗，標記移除: %s", e)
             to_remove.append(ws)
     for ws in to_remove:
         rooms[room].discard(ws)
         conn_meta.pop(ws, None)
-    if not rooms.get(room):
-        rooms.pop(room, None)
 
-# ---------- WebSocket endpoint ----------
+# ========= WebSocket =========
 @app.websocket("/ws/{room}")
 async def websocket_endpoint(websocket: WebSocket, room: str):
     await websocket.accept()
     logger.info("Accept connection to room %s", room)
 
-    rooms.setdefault(room, set()).add(websocket)
+    if room not in rooms:
+        rooms[room] = set()
+    rooms[room].add(websocket)
     conn_meta[websocket] = {"room": room, "name": None}
 
     try:
@@ -71,13 +66,13 @@ async def websocket_endpoint(websocket: WebSocket, room: str):
             try:
                 msg = json.loads(text)
             except Exception:
-                logger.warning("接收到非 JSON 訊息：%s", text)
+                logger.warning("非 JSON 訊息: %s", text)
                 continue
 
             sender = msg.get("sender") or "anon"
             conn_meta[websocket]["name"] = sender
-            mtype = msg.get("type")
 
+            mtype = msg.get("type")
             if mtype == "draw":
                 out = {
                     "type": "draw",
@@ -104,7 +99,7 @@ async def websocket_endpoint(websocket: WebSocket, room: str):
                 logger.debug("未知訊息類型: %s", mtype)
 
     except WebSocketDisconnect:
-        logger.info("WebSocketDisconnect: %s", conn_meta.get(websocket))
+        logger.info("斷線: %s", conn_meta.get(websocket))
     except Exception as e:
         logger.exception("WebSocket 發生例外: %s", e)
     finally:
@@ -113,48 +108,39 @@ async def websocket_endpoint(websocket: WebSocket, room: str):
             r = meta.get("room")
             if r and websocket in rooms.get(r, set()):
                 rooms[r].discard(websocket)
-                logger.info("從房間 %s 移除一個連線，現在人數 %d", r, len(rooms.get(r, set())))
-                if not rooms.get(r):
-                    rooms.pop(r, None)
+                logger.info("從房間 %s 移除連線，目前人數 %d", r, len(rooms[r]))
         try:
             await websocket.close()
         except Exception:
             pass
 
-# ---------- Health & info ----------
+# ========= /qr-room/{room} =========
+@app.get("/qr-room/{room_name}")
+async def qr_room_redirect(room_name: str):
+    """
+    訪問 /qr-room/<room_name> 時，
+    自動導向 index.html 並附上 ?room=<room_name>
+    """
+    redirect_url = f"/index.html?room={room_name}"
+    return RedirectResponse(redirect_url)
+
+# ========= Health / Info =========
 @app.get("/health")
 async def health():
-    return JSONResponse({"status": "ok"})
+    return {"status": "ok"}
 
 @app.get("/info")
 async def info():
-    return JSONResponse({
+    return {
         "description": "FastAPI WebSocket whiteboard server",
         "ws_example": "/ws/{room}",
-        "notes": "Put your front-end static files in /static and the server will serve / as index.html if exists"
-    })
+        "notes": "Put your front-end static files in /static and connect to ws://host/ws/<room>"
+    }
 
-# ---------- Static files (掛在 /static) ----------
-static_dir = Path(__file__).parent / "static"
-if static_dir.exists():
-    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
-else:
-    logger.warning("static 資料夾不存在：%s", static_dir)
-
-# ---------- Root: 如果有 static/index.html，回傳之 ----------
-index_file = static_dir / "index.html"
-@app.get("/")
-async def root():
-    if index_file.exists():
-        return FileResponse(str(index_file))
-    return JSONResponse({"msg": "Whiteboard server. Put your frontend in /static/index.html"})
-
-# ---------- Run (local debug) ----------
-# Local:
-#   uvicorn server_qr:app --host 0.0.0.0 --port 8000 --reload
-# Render Start Command (recommended):
-#   uvicorn server_qr:app --host 0.0.0.0 --port $PORT
+# ========= 啟動 =========
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("server_qr:app", host="0.0.0.0", port=8000, reload=True)
+    import os
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("server_qr:app", host="0.0.0.0", port=port, reload=True)
 
