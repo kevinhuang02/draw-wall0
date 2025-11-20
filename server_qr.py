@@ -1,158 +1,156 @@
-# server_qr.py
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
-import uvicorn
-import os
-import logging
+
+# server.py
 import json
-import asyncio
-import qrcode
-import io
+import logging
 import random
+import asyncio
 from typing import Dict, Set
 
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
+
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("server_qr")
+logger = logging.getLogger("whiteboard_server")
 
 app = FastAPI()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# 把 static 資料夾掛在根目錄（把你的 final.html 放在 static/ 裡面）
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
-# 環境變數（Render 上會自動注入 RENDER_EXTERNAL_URL，若沒有可手動設定）
-RENDER_BASE_URL = os.environ.get("RENDER_EXTERNAL_URL")
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-STATIC_DIR = os.path.join(BASE_DIR, "static")
-
-# 掛載 static（要確保 static 有 index.html）
-if os.path.exists(STATIC_DIR):
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-else:
-    logger.warning("⚠ static 資料夾不存在！")
-
-def get_random_topic():
-    topics = ["太空冒險","海底世界","未來城市","森林探險","恐龍世界","機器人王國","動物村派對"]
-    return random.choice(topics)
-
-# 使用 typing 避免 Python 版本問題
+# 房間 -> set of websocket connections
 rooms: Dict[str, Set[WebSocket]] = {}
-rooms_lock = asyncio.Lock()
 
-async def broadcast(room_id: str, message: str):
-    async with rooms_lock:
-        sockets = rooms.get(room_id, set()).copy()
+# websocket -> (room, name) 映射（方便在斷線時清理）
+conn_meta: Dict[WebSocket, Dict] = {}
 
+# 範例主題，server 隨機挑一個並廣播（不需要外部 AI）
+THEME_POOL = [
+    "海底世界", "未來城市", "宇宙探險", "可愛動物派對",
+    "秋天風景", "抽象線條", "童話城堡", "超級英雄大集合",
+    "夏日海灘", "賽博龐克街景", "夜空流星", "復古懷舊",
+    "美食嘉年華", "運動會", "音樂節"
+]
+
+# ========== helper ==========
+async def broadcast_to_room(room: str, message: dict, exclude: WebSocket = None):
+    """將 message 廣播到 room 的所有連線（可排除發送者）"""
+    if room not in rooms:
+        return
+    data = json.dumps(message)
     to_remove = []
-
-    for ws in sockets:
+    for ws in rooms[room]:
+        if ws is exclude:
+            continue
         try:
-            await ws.send_text(message)
-        except Exception:
+            await ws.send_text(data)
+        except Exception as e:
+            logger.warning("廣播失敗，標記為待移除: %s", e)
             to_remove.append(ws)
+    # 移除無效連線
+    for ws in to_remove:
+        rooms[room].discard(ws)
+        conn_meta.pop(ws, None)
 
-    if to_remove:
-        async with rooms_lock:
-            for ws in to_remove:
-                rooms[room_id].discard(ws)
-
-@app.websocket("/ws/{room_id}")
-async def websocket_endpoint(websocket: WebSocket, room_id: str):
+# ========== WebSocket endpoint ==========
+@app.websocket("/ws/{room}")
+async def websocket_endpoint(websocket: WebSocket, room: str):
+    """
+    WebSocket 路徑 /ws/{room}
+    前端可以直接連到： ws://<host>/ws/room1
+    前端訊息格式 (JSON) 範例：
+      { "type":"draw", "mode":"pen","color":"#000","size":5,"x":123,"y":45, "begin":true, "sender":"user_123" }
+      { "type":"clear", "sender":"user_123" }
+      { "type":"generateTheme", "sender":"user_123" }
+    Server 廣播範例：
+      draw -> { "type":"draw", ... , "sender": "..." }
+      clear -> { "type":"clear" }
+      topic -> { "type":"topic", "value":"..." }
+    """
     await websocket.accept()
+    logger.info("Accept connection to room %s", room)
 
-    async with rooms_lock:
-        if room_id not in rooms:
-            rooms[room_id] = set()
-        rooms[room_id].add(websocket)
-
-    logger.info(f"WebSocket connected: room={room_id}")
-
-    # 新用戶進來 → 發送主題
-    await websocket.send_text(json.dumps({"type": "topic", "value": get_random_topic()}))
+    # 將 websocket 放入房間集合
+    if room not in rooms:
+        rooms[room] = set()
+    rooms[room].add(websocket)
+    conn_meta[websocket] = {"room": room, "name": None}
 
     try:
         while True:
-            data = await websocket.receive_text()
-
+            text = await websocket.receive_text()
             try:
-                payload = json.loads(data)
+                msg = json.loads(text)
             except Exception:
-                payload = {"type": "draw", "value": data}
+                logger.warning("接收到非 JSON 訊息：%s", text)
+                continue
 
-            if isinstance(payload, dict) and payload.get("type") == "generateTheme":
-                topic = get_random_topic()
-                await broadcast(room_id, json.dumps({"type": "topic", "value": topic}))
+            # 確保 sender 存在（前端會加上 name）
+            sender = msg.get("sender") or "anon"
+            conn_meta[websocket]["name"] = sender
+
+            mtype = msg.get("type")
+            if mtype == "draw":
+                # 直接把 draw 廣播給房間內其他人（包含必要欄位）
+                # server 不做路徑管理，前端會用 sender 去區分 path
+                out = {
+                    "type": "draw",
+                    "mode": msg.get("mode"),
+                    "color": msg.get("color"),
+                    "size": msg.get("size"),
+                    "x": msg.get("x"),
+                    "y": msg.get("y"),
+                    "begin": msg.get("begin", False),
+                    "sender": sender
+                }
+                await broadcast_to_room(room, out, exclude=websocket)
+
+            elif mtype == "clear":
+                out = { "type": "clear", "sender": sender }
+                await broadcast_to_room(room, out, exclude=websocket)
+
+            elif mtype == "generateTheme":
+                # server 在池內隨機挑一個並廣播 topic
+                theme = random.choice(THEME_POOL)
+                out = { "type": "topic", "value": theme, "by": sender }
+                # 廣播給 room 的所有人（含發起者）
+                await broadcast_to_room(room, out, exclude=None)
+
             else:
-                # 保證廣播的是字串
-                await broadcast(room_id, json.dumps(payload) if isinstance(payload, dict) else str(payload))
+                # 未知類型，記 log
+                logger.debug("未知訊息類型: %s", mtype)
 
     except WebSocketDisconnect:
-        logger.info(f"WebSocket disconnected: room={room_id}")
-
+        logger.info("斷線: %s", conn_meta.get(websocket))
+    except Exception as e:
+        logger.exception("WebSocket 發生例外: %s", e)
     finally:
-        async with rooms_lock:
-            if room_id in rooms:
-                rooms[room_id].discard(websocket)
-                if not rooms[room_id]:
-                    del rooms[room_id]
+        # 清理
+        meta = conn_meta.pop(websocket, None)
+        if meta:
+            r = meta.get("room")
+            if r and websocket in rooms.get(r, set()):
+                rooms[r].discard(websocket)
+                logger.info("從房間 %s 移除一個連線，現在人數 %d", r, len(rooms[r]))
+        try:
+            await websocket.close()
+        except Exception:
+            pass
 
-@app.get("/", include_in_schema=False)
-async def index():
-    file_path = os.path.join(STATIC_DIR, "index.html")
-    if os.path.exists(file_path):
-        return FileResponse(file_path)
-    return {"error": "static/index.html not found"}
-
-@app.get("/qr/{text}")
-def generate_qr(text: str):
-    """
-    舊版：接收任意文字並回傳 QR 圖片（直接把 text 轉成 QR）
-    範例： /qr/hello
-    """
-    img = qrcode.make(text)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-    return StreamingResponse(buf, media_type="image/png")
-
-@app.get("/qr-room/{room}")
-def qr_room(room: str, name: str = "User"):
-    """
-    產生指向公開 Render 網址的 QR code。
-    如果在 Render 上，RENDER_BASE_URL 應該會自動有值（例如 https://your-app.onrender.com）。
-    測試或本地執行時會 fallback 到 http://127.0.0.1:8000
-    """
-    if RENDER_BASE_URL:
-        base = RENDER_BASE_URL.rstrip("/")
-    else:
-        # fallback for local dev
-        host = os.environ.get("HOST", "127.0.0.1")
-        port = os.environ.get("PORT", "8000")
-        base = f"http://{host}:{port}"
-
-    url = f"{base}/static/index.html?room={room}&name={name}"
-
-    img = qrcode.make(url)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-    return StreamingResponse(buf, media_type="image/png")
-
-@app.get("/env")
-def show_env():
-    return {"RENDER_EXTERNAL_URL": os.environ.get("RENDER_EXTERNAL_URL")} 
-
+# ========== (選用) 一個簡單的 root route 說明 ==========
 @app.get("/health")
-def health():
+async def health():
     return {"status": "ok"}
 
+@app.get("/info")
+async def info():
+    return {
+        "description": "FastAPI WebSocket whiteboard server",
+        "ws_example": "/ws/{room}",
+        "notes": "Put your front-end static files in /static and connect to ws://host/ws/<room>"
+    }
+
+# 啟動時可使用 uvicorn server:app ...
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))  # 本地 8000，Render 用 $PORT
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    import uvicorn
+    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=True)
