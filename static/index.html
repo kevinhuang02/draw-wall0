@@ -21,6 +21,7 @@
       border:none;
     }
     button { cursor:pointer; }
+    #qrCode { margin-left:20px; }
   </style>
 </head>
 <body>
@@ -34,10 +35,12 @@
   <button id="save">💾 儲存畫布</button>
   <button id="aiTheme">🎲 生成主題</button>
   <span id="themeText" style="margin-left:20px; font-size:18px;"></span>
+  <div id="qrCode"></div>
 </div>
 
 <canvas id="canvas"></canvas>
 
+<script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
 <script>
 // ========= URL 參數（房間、使用者名稱） =========
 const params = new URLSearchParams(location.search);
@@ -89,7 +92,6 @@ const ws = new WebSocket(
 
 ws.onmessage = (ev) => {
   const msg = JSON.parse(ev.data);
-
   if (msg.type === "draw") drawFromServer(msg);
   else if (msg.type === "clear") ctx.clearRect(0, 0, canvas.width, canvas.height);
   else if (msg.type === "topic") {
@@ -108,21 +110,13 @@ canvas.onpointerdown = e => {
   drawing = true;
   ctx.beginPath();
   ctx.moveTo(e.offsetX, e.offsetY);
-
-  send({
-    type:"draw", mode, color, size,
-    x:e.offsetX, y:e.offsetY,
-    begin:true
-  });
+  send({ type:"draw", mode, color, size, x:e.offsetX, y:e.offsetY, begin:true });
 };
 
 canvas.onpointermove = e => {
   if (!drawing) return;
   draw(e.offsetX, e.offsetY);
-  send({
-    type:"draw", mode, color, size,
-    x:e.offsetX, y:e.offsetY
-  });
+  send({ type:"draw", mode, color, size, x:e.offsetX, y:e.offsetY });
 };
 
 canvas.onpointerup = () => drawing = false;
@@ -138,11 +132,9 @@ function draw(x, y) {
 }
 
 // ========= Server 的多使用者繪圖 =========
-const remotePaths = {};  // 每位使用者都各有 path
-
+const remotePaths = {};
 function drawFromServer(m) {
-  if (m.sender === name) return; // 不畫自己的線
-
+  if (m.sender === name) return;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.lineWidth = m.size;
@@ -160,9 +152,17 @@ function drawFromServer(m) {
     remotePaths[m.sender] = { x: m.x, y: m.y };
   }
 }
+
+// ========= QR Code =========
+const qrUrl = `${location.origin}?room=${room}`;
+QRCode.toCanvas(document.getElementById("qrCode"), qrUrl, { width: 80 }, function (error) {
+  if (error) console.error(error);
+  else console.log("QR code generated:", qrUrl);
+});
 </script>
 
 </body>
 </html>
+
 
 
