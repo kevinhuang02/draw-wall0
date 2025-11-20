@@ -8,7 +8,10 @@
     body { margin:0; background:#222; color:#fff; font-family:sans-serif; }
     #toolbar {
       display:flex; gap:10px; padding:10px; background:#333;
-      align-items:center;
+      align-items:center; justify-content: space-between;
+    }
+    #left-toolbar {
+      display:flex; gap:10px; align-items:center;
     }
     #canvas {
       display:block;
@@ -21,20 +24,25 @@
       border:none;
     }
     button { cursor:pointer; }
-    #qrCode { margin-left:20px; }
+    #qrCode {
+      width: 80px;
+      height: 80px;
+    }
   </style>
 </head>
 <body>
 
 <div id="toolbar">
-  <button id="pen">✏️ 筆刷</button>
-  <button id="eraser">🧽 橡皮擦</button>
-  <input type="color" id="colorPicker" value="#000000">
-  <input type="range" id="sizePicker" min="2" max="40" value="5">
-  <button id="clear">🗑️ 全部清除</button>
-  <button id="save">💾 儲存畫布</button>
-  <button id="aiTheme">🎲 生成主題</button>
-  <span id="themeText" style="margin-left:20px; font-size:18px;"></span>
+  <div id="left-toolbar">
+    <button id="pen">✏️ 筆刷</button>
+    <button id="eraser">🧽 橡皮擦</button>
+    <input type="color" id="colorPicker" value="#000000">
+    <input type="range" id="sizePicker" min="2" max="40" value="5">
+    <button id="clear">🗑️ 全部清除</button>
+    <button id="save">💾 儲存畫布</button>
+    <button id="aiTheme">🎲 生成主題</button>
+    <span id="themeText" style="margin-left:20px; font-size:18px;"></span>
+  </div>
   <div id="qrCode"></div>
 </div>
 
@@ -155,7 +163,7 @@ function drawFromServer(m) {
 
 // ========= QR Code =========
 const qrUrl = `${location.origin}?room=${room}`;
-QRCode.toCanvas(document.getElementById("qrCode"), qrUrl, { width: 80 }, function (error) {
+QRCode.toCanvas(document.getElementById("qrCode"), qrUrl, { width: 80, height: 80 }, function (error) {
   if (error) console.error(error);
   else console.log("QR code generated:", qrUrl);
 });
@@ -163,6 +171,7 @@ QRCode.toCanvas(document.getElementById("qrCode"), qrUrl, { width: 80 }, functio
 
 </body>
 </html>
+
 
 
 
