@@ -142,10 +142,11 @@ def qr_room(room: str, name: str = "User"):
     產生掃描後可直接進房間的 QR Code（手機可加入同個房間）
     """
 
+    # 改成 SITE_URL（由你在 Render 後台自行設定）
     if RENDER_BASE_URL:
         base = RENDER_BASE_URL.rstrip("/")
     else:
-        # Local dev
+        # Local dev fallback
         host = os.environ.get("HOST", "127.0.0.1")
         port = os.environ.get("PORT", "8000")
         base = f"http://{host}:{port}"
