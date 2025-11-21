@@ -1,6 +1,20 @@
 services:
   - type: web
-    name: fastapi-draw-server
+    name: fastapi-draw-serverservices:
+  - type: web
+    name: fastapi-ws-server
+    env: python
+    region: singapore   # 可改：oregon / frankfurt / singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server_qr:app --host 0.0.0.0 --port 10000
+
+    # Render 會強制要求你綁定 $PORT
+    envVars:
+      - key: PORT
+        value: 10000
+
+    # 若你想在 Render Logs 看到更多訊息，可以加 log level：
+    plan: free
     env: python
     plan: free
     buildCommand: "pip install -r requirements.txt"
