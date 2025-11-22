@@ -117,91 +117,174 @@ function send(data) {
   ws.send(JSON.stringify(data));
 }
 
-// ========= 本地繪圖：改為 *獨立 beginPath()*（不互相干擾） =========
-canvas.onpointerdown = e => {
-  drawing = true;
-  lastX = e.offsetX;
-  lastY = e.offsetY;
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>多人動態畫畫</title>
+<style>
+body { margin:0; background:#222; color:#fff; font-family:sans-serif; overflow:hidden; }
+#toolbar { display:flex; gap:10px; padding:10px; background:#333; align-items:center; justify-content: space-between; }
+#left-toolbar { display:flex; gap:10px; align-items:center; }
+button, input[type=color], input[type=range] { padding:6px; border-radius:6px; border:none; cursor:pointer; }
+#canvas { display:block; background:#fff; touch-action:none; }
+#qrCode { width:80px; height:80px; }
+</style>
+</head>
+<body>
 
-  send({
-    type:"draw",
-    mode,
-    color,
-    size,
-    x:lastX,
-    y:lastY,
-    begin:true
-  });
+<div id="toolbar">
+  <div id="left-toolbar">
+    <button id="pen">✏️ 筆刷</button>
+    <button id="eraser">🧽 橡皮擦</button>
+    <input type="color" id="colorPicker" value="#000000">
+    <input type="range" id="sizePicker" min="2" max="40" value="5">
+    <button id="clear">🗑️ 全部清除</button>
+    <button id="save">💾 儲存畫布</button>
+    <button id="aiTheme">🎲 生成主題</button>
+    <span id="themeText" style="margin-left:20px; font-size:18px;"></span>
+  </div>
+  <div id="qrCode"></div>
+</div>
+
+<canvas id="canvas"></canvas>
+<script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+
+<script>
+// URL 參數
+const params = new URLSearchParams(location.search);
+const room = params.get("room") || "room1";
+const name = params.get("name") || ("user_" + Math.floor(Math.random()*9999));
+
+// Canvas
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+function resize(){ canvas.width=window.innerWidth; canvas.height=window.innerHeight-60; }
+resize(); window.onresize=resize;
+
+// 工具欄
+let drawing=false, mode="pen";
+let color=document.getElementById("colorPicker").value;
+let size=document.getElementById("sizePicker").value;
+document.getElementById("pen").onclick=()=>mode="pen";
+document.getElementById("eraser").onclick=()=>mode="eraser";
+document.getElementById("colorPicker").oninput=e=>color=e.target.value;
+document.getElementById("sizePicker").oninput=e=>size=e.target.value;
+document.getElementById("clear").onclick=()=>{ objects=[]; send({type:"clear"}); };
+document.getElementById("save").onclick=()=>{
+  const link=document.createElement("a");
+  link.download=`canvas_${Date.now()}.png`;
+  link.href=canvas.toDataURL("image/png");
+  link.click();
 };
+document.getElementById("aiTheme").onclick=()=>{ send({type:"generateTheme"}); };
 
-canvas.onpointermove = e => {
-  if (!drawing) return;
+// QR Code
+QRCode.toCanvas(document.getElementById("qrCode"), `${location.origin}?room=${room}`, {width:80,height:80});
 
-  drawLocal(e.offsetX, e.offsetY);
-
-  send({
-    type:"draw",
-    mode,
-    color,
-    size,
-    x:e.offsetX,
-    y:e.offsetY
-  });
-};
-
-canvas.onpointerup = () => (drawing = false);
-canvas.onpointerleave = () => (drawing = false);
-
-// 本地端畫筆（真正修正互相干擾的核心）
-function drawLocal(x, y) {
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.lineWidth = size;
-  ctx.strokeStyle = (mode === "pen") ? color : "#ffffff";
-
-  ctx.beginPath();
-  ctx.moveTo(lastX, lastY);
-  ctx.lineTo(x, y);
-  ctx.stroke();
-
-  lastX = x;
-  lastY = y;
-}
-
-// ========= 遠端多使用者繪圖（你原本就完全正確） =========
-const remotePaths = {};
-
-function drawFromServer(m) {
-  if (m.sender === name) return;
-
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.lineWidth = m.size;
-  ctx.strokeStyle = (m.mode === "pen") ? m.color : "#ffffff";
-
-  if (m.begin || !remotePaths[m.sender]) {
-    remotePaths[m.sender] = { x: m.x, y: m.y };
-    return;
+// WebSocket
+const ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/${room}`);
+ws.onmessage=(ev)=>{
+  const msg=JSON.parse(ev.data);
+  if(msg.sender===name) return;
+  switch(msg.type){
+    case "draw": objects.push({...msg}); break;
+    case "move": {
+      const o=objects.find(o=>o.id===msg.id); if(o){ o.x=msg.x; o.y=msg.y; }
+      break;
+    }
+    case "scale": {
+      const o=objects.find(o=>o.id===msg.id); if(o){ o.size=msg.size; }
+      break;
+    }
+    case "clear": objects=[]; break;
+    case "topic": document.getElementById("themeText").textContent="🎨 主題："+msg.value; break;
   }
+};
+function send(data){ data.sender=name; ws.send(JSON.stringify(data)); }
 
-  // 分離 beginPath → moveTo → lineTo
-  ctx.beginPath();
-  ctx.moveTo(remotePaths[m.sender].x, remotePaths[m.sender].y);
-  ctx.lineTo(m.x, m.y);
-  ctx.stroke();
+// 物件管理
+let objects=[];
+let selected=null, offsetX=0, offsetY=0, draggingId=null;
 
-  remotePaths[m.sender] = { x: m.x, y: m.y };
+// 繪圖 / 拖動
+canvas.onpointerdown=e=>{
+  const mx=e.offsetX,my=e.offsetY;
+  selected=null;
+  for(let i=objects.length-1;i>=0;i--){
+    let o=objects[i];
+    if(Math.hypot(mx-o.x,my-o.y)<=o.size/2){
+      selected=o; offsetX=mx-o.x; offsetY=my-o.y;
+      draggingId=o.id;
+      return;
+    }
+  }
+  drawing=true;
+  const newObj={x:mx,y:my,size:size,color:(mode==="pen"?color:"#fff"),
+                vx:(Math.random()-0.5)*2,vy:(Math.random()-0.5)*2,
+                id:Date.now()+"_"+Math.random()};
+  objects.push(newObj);
+  send({...newObj,type:"draw"});
+};
+
+canvas.onpointermove=e=>{
+  const mx=e.offsetX,my=e.offsetY;
+  if(selected){
+    selected.x=mx-offsetX; selected.y=my-offsetY;
+    send({type:"move",id:selected.id,x:selected.x,y:selected.y});
+  } else if(drawing){
+    const newObj={x:mx,y:my,size:size,color:(mode==="pen"?color:"#fff"),
+                  vx:(Math.random()-0.5)*2,vy:(Math.random()-0.5)*2,
+                  id:Date.now()+"_"+Math.random()};
+    objects.push(newObj);
+    send({...newObj,type:"draw"});
+  }
+};
+
+canvas.onpointerup=()=>{drawing=false; selected=null; draggingId=null;};
+canvas.onpointerleave=()=>{drawing=false; selected=null; draggingId=null;};
+
+// 滾輪縮放
+canvas.onwheel=e=>{
+  e.preventDefault();
+  const mx=e.offsetX,my=e.offsetY;
+  for(let i=objects.length-1;i>=0;i--){
+    let o=objects[i];
+    if(Math.hypot(mx-o.x,my-o.y)<=o.size/2){
+      o.size=Math.max(2,Math.min(100,o.size-e.deltaY*0.05));
+      send({type:"scale",id:o.id,size:o.size});
+      break;
+    }
+  }
+};
+
+// 動畫循環
+function animate(){
+  requestAnimationFrame(animate);
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  objects.forEach((o,i)=>{
+    if(draggingId!==o.id){
+      o.x+=o.vx; o.y+=o.vy;
+      if(o.x<0||o.x>canvas.width)o.vx*=-1;
+      if(o.y<0||o.y>canvas.height)o.vy*=-1;
+      for(let j=i+1;j<objects.length;j++){
+        let o2=objects[j];
+        const dx=o2.x-o.x, dy=o2.y-o.y, dist=Math.hypot(dx,dy);
+        if(dist<(o.size+o2.size)/2){ [o.vx,o2.vx]=[o2.vx,o.vx]; [o.vy,o2.vy]=[o2.vy,o.vy]; }
+      }
+    }
+    ctx.fillStyle=o.color;
+    ctx.beginPath();
+    ctx.arc(o.x,o.y,o.size/2,0,Math.PI*2);
+    ctx.fill();
+  });
 }
-
-// ========= QR Code =========
-const qrUrl = `${location.origin}?room=${room}`;
-QRCode.toCanvas(document.getElementById("qrCode"), qrUrl, { width: 80, height: 80 }, function (error) {
-  if (error) console.error(error);
-});
+animate();
 </script>
-
 </body>
 </html>
+
 
 
 
