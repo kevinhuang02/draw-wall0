@@ -33,17 +33,18 @@ RENDER_BASE_URL = os.environ.get("RENDER_EXTERNAL_URL")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
-# 挂载 static 目录（Render 必須有 index.html 才能正常工作）
+# 掛載 static
 if os.path.exists(STATIC_DIR):
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 else:
-    logger.warning("⚠ static 資料夾不存在！Render 一定要有 static/index.html")
+    logger.warning("⚠ static 資料夾不存在，Render 需要 static/index.html")
 
 # 隨機主題
 def get_random_topic():
     topics = [
-        "太空冒險","海底世界","未來城市","森林探險",
-        "恐龍世界","機器人王國","動物村派對","海盜寶藏","異世界探險"
+        "太空冒險", "海底世界", "未來城市", "森林探險",
+        "恐龍世界", "機器人王國", "動物村派對", "海盜寶藏",
+        "異世界冒險"
     ]
     return random.choice(topics)
 
@@ -51,7 +52,9 @@ def get_random_topic():
 rooms: Dict[str, Set[WebSocket]] = {}
 rooms_lock = asyncio.Lock()
 
-# 廣播
+# =====================
+#   廣播（排除自己）
+# =====================
 async def broadcast(room_id: str, message: str, sender_ws: WebSocket = None):
     async with rooms_lock:
         sockets = rooms.get(room_id, set()).copy()
@@ -73,17 +76,21 @@ async def broadcast(room_id: str, message: str, sender_ws: WebSocket = None):
             for ws in to_remove:
                 rooms[room_id].discard(ws)
 
-# WebSocket 端點
+
+# =====================
+#    WebSocket 端點
+# =====================
 @app.websocket("/ws/{room_id}")
 async def websocket_endpoint(websocket: WebSocket, room_id: str):
     await websocket.accept()
 
+    # 加入房間
     async with rooms_lock:
         rooms.setdefault(room_id, set()).add(websocket)
 
     logger.info(f"🟢 WebSocket connected: room={room_id}")
 
-    # 發送主題給新進使用者
+    # 新進使用者 -> 發送一次主題
     await websocket.send_text(json.dumps({
         "type": "topic",
         "value": get_random_topic()
@@ -91,26 +98,24 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
 
     try:
         while True:
-            data = await websocket.receive_text()
+            raw = await websocket.receive_text()
+            payload = json.loads(raw)
 
-            try:
-                payload = json.loads(data)
-            except:
-                payload = {"type": "draw"}
-
-            # 主題生成
+            # ----------- 產生主題 -----------
             if payload.get("type") == "generateTheme":
                 topic = get_random_topic()
-                await broadcast(room_id, json.dumps({"type": "topic", "value": topic}))
+                msg = json.dumps({"type": "topic", "value": topic})
+                await broadcast(room_id, msg)   # 所有人都要收到
                 continue
 
-            # 一般繪圖 or 清除
-            await broadcast(room_id, json.dumps(payload))
+            # ----------- 一般畫筆訊息 / 清除畫面 -----------
+            await broadcast(room_id, json.dumps(payload), sender_ws=websocket)
 
     except WebSocketDisconnect:
         logger.info(f"🔴 WebSocket disconnected: room={room_id}")
 
     finally:
+        # 離線後從房間移除
         async with rooms_lock:
             if room_id in rooms:
                 rooms[room_id].discard(websocket)
@@ -118,7 +123,9 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
                     del rooms[room_id]
 
 
-# 網站首頁
+# =====================
+#     網站首頁
+# =====================
 @app.get("/", include_in_schema=False)
 async def index():
     index_file = os.path.join(STATIC_DIR, "index.html")
@@ -127,7 +134,9 @@ async def index():
     return {"error": "static/index.html not found"}
 
 
-# 一般 QR Code（輸入文字 → QR）
+# =====================
+#     產生一般 QRCode
+# =====================
 @app.get("/qr/{text}")
 def generate_qr(text: str):
     img = qrcode.make(text)
@@ -137,22 +146,21 @@ def generate_qr(text: str):
     return StreamingResponse(buf, media_type="image/png")
 
 
-# 指向指定房間的 QR Code
+# =====================
+#   產生房間用的 QRCode
+# =====================
 @app.get("/qr-room/{room}")
 def qr_room(room: str, name: str = "User"):
-    """
-    產生掃描後可直接進房間的 QR Code（手機可加入同個房間）
-    """
 
-    # 改成 SITE_URL（由你在 Render 後台自行設定）
     if RENDER_BASE_URL:
         base = RENDER_BASE_URL.rstrip("/")
     else:
-        # Local dev fallback
+        # Local fallback
         host = os.environ.get("HOST", "127.0.0.1")
         port = os.environ.get("PORT", "8000")
         base = f"http://{host}:{port}"
 
+    # 手機掃描後直接加入房間
     url = f"{base}/static/index.html?room={room}&name={name}"
 
     img = qrcode.make(url)
@@ -172,7 +180,9 @@ def health():
     return {"status": "ok"}
 
 
-# Render 的啟動方式
+# =====================
+#     Render 啟動
+# =====================
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
