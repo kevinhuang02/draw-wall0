@@ -50,6 +50,7 @@ def get_random_topic():
 
 # 房間管理
 rooms: Dict[str, Set[WebSocket]] = {}
+room_topics: Dict[str, str] = {}  # ⭐ 每個房間的主題
 rooms_lock = asyncio.Lock()
 
 # =====================
@@ -63,7 +64,7 @@ async def broadcast(room_id: str, message: str, sender_ws: WebSocket = None):
 
     for ws in sockets:
         if ws is sender_ws:
-            continue  # ❗ 不回傳給自己，避免畫筆抖動
+            continue  # ❗ 不回傳給自己 避免畫筆抖動
 
         try:
             await ws.send_text(message)
@@ -90,10 +91,14 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
 
     logger.info(f"🟢 WebSocket connected: room={room_id}")
 
-    # 新進使用者 -> 發送一次主題
+    # ⭐ 房間第一次啟動 → 建立主題
+    if room_id not in room_topics:
+        room_topics[room_id] = get_random_topic()
+
+    # ⭐ 新加入的人 → 送他這個房間的最新主題
     await websocket.send_text(json.dumps({
         "type": "topic",
-        "value": get_random_topic()
+        "value": room_topics[room_id]
     }))
 
     try:
@@ -103,24 +108,29 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
 
             # ----------- 產生主題 -----------
             if payload.get("type") == "generateTheme":
-                topic = get_random_topic()
-                msg = json.dumps({"type": "topic", "value": topic})
-                await broadcast(room_id, msg)   # 所有人都要收到
+                new_topic = get_random_topic()
+                room_topics[room_id] = new_topic  # ⭐ 更新房間主題
+
+                msg = json.dumps({"type": "topic", "value": new_topic})
+                await broadcast(room_id, msg)   # 全部人都收到
                 continue
 
-            # ----------- 一般畫筆訊息 / 清除畫面 -----------
+            # ----------- 一般畫筆 / 清除畫面 -----------
             await broadcast(room_id, json.dumps(payload), sender_ws=websocket)
 
     except WebSocketDisconnect:
         logger.info(f"🔴 WebSocket disconnected: room={room_id}")
 
     finally:
-        # 離線後從房間移除
+        # 離線 → 移除
         async with rooms_lock:
             if room_id in rooms:
                 rooms[room_id].discard(websocket)
+
+                # 房間沒人 → 刪除房間也清除主題
                 if not rooms[room_id]:
                     del rooms[room_id]
+                    room_topics.pop(room_id, None)
 
 
 # =====================
@@ -186,3 +196,4 @@ def health():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
