@@ -52,24 +52,26 @@ rooms: Dict[str, Set[WebSocket]] = {}
 rooms_lock = asyncio.Lock()
 
 # 廣播
-async def broadcast(room_id: str, message: str):
+async def broadcast(room_id: str, message: str, sender_ws: WebSocket = None):
     async with rooms_lock:
         sockets = rooms.get(room_id, set()).copy()
 
     to_remove = []
 
     for ws in sockets:
+        if ws is sender_ws:
+            continue  # ❗ 不回傳給自己，避免畫筆抖動
+
         try:
             await ws.send_text(message)
         except Exception:
             to_remove.append(ws)
 
-    # 移除失效連線
+    # 移除無效連線
     if to_remove:
         async with rooms_lock:
             for ws in to_remove:
                 rooms[room_id].discard(ws)
-
 
 # WebSocket 端點
 @app.websocket("/ws/{room_id}")
