@@ -1,199 +1,135 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-TW">
 <head>
-<meta charset="UTF-8" />
-<title>多人共同創作畫布</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>多人畫畫同步</title>
 <style>
-  body { margin:0; overflow:hidden; background:#f0f0f0; font-family:sans-serif; }
-  #toolbar {
-    position:fixed; top:10px; left:10px; padding:10px;
-    background:#fff; border-radius:10px; box-shadow:0 0 10px #0003;
-  }
-  #toolbar input[type=color], #toolbar input[type=range] {
-    margin:5px 0;
-  }
-  #qr { margin-top:10px; }
-  canvas { background:white; display:block; }
+  body { margin:0; background:#222; color:#fff; font-family:sans-serif; }
+  #toolbar { display:flex; gap:10px; padding:10px; background:#333; align-items:center; justify-content: space-between; }
+  #left-toolbar { display:flex; gap:10px; align-items:center; }
+  #canvas { display:block; background:#fff; touch-action:none; }
+  button,input[type=color],input[type=range] { padding:6px; border-radius:6px; border:none; }
+  button { cursor:pointer; }
+  #qrCode { width: 80px; height: 80px; }
 </style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 </head>
-
 <body>
-<canvas id="canvas"></canvas>
 
 <div id="toolbar">
-  <div><b>🎨 多人即時畫布</b></div>
-
-  <div>
-    顏色：
-    <input id="color" type="color" value="#000000">
+  <div id="left-toolbar">
+    <button id="pen">✏️ 筆刷</button>
+    <button id="eraser">🧽 橡皮擦</button>
+    <input type="color" id="colorPicker" value="#000000">
+    <input type="range" id="sizePicker" min="2" max="40" value="5">
+    <button id="clear">🗑️ 全部清除</button>
+    <button id="save">💾 儲存畫布</button>
+    <button id="aiTheme">🎲 生成主題</button>
+    <span id="themeText" style="margin-left:20px; font-size:18px;"></span>
   </div>
-
-  <div>
-    筆刷大小：
-    <input id="size" type="range" min="1" max="40" value="5">
-  </div>
-
-  <button id="eraser">橡皮擦</button>
-  <button id="pen">畫筆</button>
-  <button id="clearBtn">清空畫布</button>
-
-  <div id="qr"></div>
+  <div id="qrCode"></div>
 </div>
 
+<canvas id="canvas"></canvas>
+
+<script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
 <script>
-// ========================== 初始化 ==========================
+// -------- URL 參數 --------
+const params = new URLSearchParams(location.search);
+const room = params.get("room") || "room1";
+const name = params.get("name") || "user_" + Math.floor(Math.random()*9999);
+
+// -------- Canvas 初始化 --------
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
-resizeCanvas();
+function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight-60; }
+resize();
+window.onresize = resize;
 
-window.onresize = resizeCanvas;
-function resizeCanvas(){
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-}
-
-// ========================== 取得 Room ==========================
-const url = new URL(location.href);
-let room = url.searchParams.get("room");
-if (!room) {
-  room = "room1"; // 或 server 自動產生
-  history.replaceState(null, "", "?room=" + room);
-}
-
-// ========================== WebSocket ==========================
-const ws = new WebSocket(`wss://${location.host}/ws?room=${room}`);
-
-ws.onopen = () => console.log("🔵 WebSocket Connected");
-
-ws.onclose = () => console.log("🔴 Disconnected");
-
-// ========================== 本地繪圖參數 ==========================
+// -------- 畫筆參數 --------
 let drawing = false;
-let lastX = 0, lastY = 0;
-let currentColor = document.getElementById("color").value;
-let currentSize = document.getElementById("size").value;
-let mode = "pen"; // pen / eraser
-let currentStrokeId = null;
+let mode = "pen";
+let currentColor = document.getElementById("colorPicker").value;
+let currentSize = document.getElementById("sizePicker").value;
+let lastX = 0;
+let lastY = 0;
 
-// ========================== 工具列事件 ==========================
-document.getElementById("color").oninput = e => currentColor = e.target.value;
-document.getElementById("size").oninput = e => currentSize = e.target.value;
+// -------- 工具列事件 --------
+document.getElementById("pen").onclick = () => mode="pen";
+document.getElementById("eraser").onclick = () => mode="eraser";
+document.getElementById("colorPicker").oninput = e => currentColor = e.target.value;
+document.getElementById("sizePicker").oninput = e => currentSize = e.target.value;
 
-document.getElementById("eraser").onclick = () => mode = "eraser";
-document.getElementById("pen").onclick = () => mode = "pen";
-
-document.getElementById("clearBtn").onclick = () => {
+document.getElementById("clear").onclick = () => {
   ctx.clearRect(0,0,canvas.width,canvas.height);
-  ws.send(JSON.stringify({ type:"clear" }));
+  send({type:"clear"});
 };
 
-// ========================== 指針事件（本地 + 送出） ==========================
-canvas.onpointerdown = e => {
-  drawing = true;
-  lastX = e.offsetX;
-  lastY = e.offsetY;
-
-  // 每條線一個獨立 ID（避免互相干擾）
-  currentStrokeId = crypto.randomUUID();
-
-  ws.send(JSON.stringify({
-    type:"begin",
-    strokeId: currentStrokeId,
-    x:lastX, y:lastY,
-    color: currentColor,
-    size: currentSize,
-    mode: mode
-  }));
+document.getElementById("save").onclick = () => {
+  const link = document.createElement("a");
+  link.download = `canvas_${Date.now()}.png`;
+  link.href = canvas.toDataURL("image/png");
+  link.click();
 };
 
-canvas.onpointermove = e => {
-  if (!drawing) return;
+document.getElementById("aiTheme").onclick = () => send({type:"generateTheme"});
 
-  drawLocal(e.offsetX, e.offsetY, mode);
-
-  ws.send(JSON.stringify({
-    type:"draw",
-    strokeId: currentStrokeId,
-    x:e.offsetX,
-    y:e.offsetY
-  }));
+// -------- WebSocket --------
+const ws = new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/${room}`);
+ws.onmessage = ev => {
+  const msg = JSON.parse(ev.data);
+  if(msg.type==="draw") drawFromServer(msg);
+  else if(msg.type==="clear") ctx.clearRect(0,0,canvas.width,canvas.height);
+  else if(msg.type==="topic") document.getElementById("themeText").textContent = "🎨 主題：" + msg.value;
 };
+function send(data){ data.sender=name; ws.send(JSON.stringify(data)); }
 
-canvas.onpointerup = () => drawing = false;
-canvas.onpointerleave = () => drawing = false;
+// -------- 本地畫筆 --------
+canvas.onpointerdown = e=>{
+  drawing=true; lastX=e.offsetX; lastY=e.offsetY;
+  send({type:"draw", mode, color:currentColor, size:currentSize, x:lastX, y:lastY, begin:true});
+};
+canvas.onpointermove = e=>{
+  if(!drawing) return;
+  drawLocal(e.offsetX,e.offsetY);
+  send({type:"draw", mode, color:currentColor, size:currentSize, x:e.offsetX, y:e.offsetY});
+};
+canvas.onpointerup = canvas.onpointerleave = ()=>drawing=false;
 
-// ========================== 本地繪圖 ==========================
-function drawLocal(x, y, mode){
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.lineWidth = currentSize;
-  ctx.strokeStyle = (mode === "pen" ? currentColor : "#ffffff");
-
+function drawLocal(x,y){
+  ctx.lineCap="round";
+  ctx.lineJoin="round";
+  ctx.lineWidth=currentSize;
+  ctx.strokeStyle=(mode==="pen"?currentColor:"#ffffff");
   ctx.beginPath();
-  ctx.moveTo(lastX, lastY);
-  ctx.lineTo(x, y);
+  ctx.moveTo(lastX,lastY);
+  ctx.lineTo(x,y);
   ctx.stroke();
-
-  lastX = x;
-  lastY = y;
+  lastX=x; lastY=y;
 }
 
-// ========================== 遠端繪圖（不互相干擾） ==========================
-const remoteStrokes = {}; // 依 strokeId 分開畫線
+// -------- 遠端畫筆 --------
+const remotePaths = {};
+function drawFromServer(m){
+  if(m.sender===name) return;
+  ctx.lineCap="round";
+  ctx.lineJoin="round";
+  ctx.lineWidth=m.size;
+  ctx.strokeStyle=(m.mode==="pen"?m.color:"#ffffff");
+  if(m.begin || !remotePaths[m.sender]){ remotePaths[m.sender]={x:m.x,y:m.y}; return; }
+  ctx.beginPath();
+  ctx.moveTo(remotePaths[m.sender].x, remotePaths[m.sender].y);
+  ctx.lineTo(m.x,m.y);
+  ctx.stroke();
+  remotePaths[m.sender]={x:m.x,y:m.y};
+}
 
-ws.onmessage = event => {
-  const msg = JSON.parse(event.data);
-
-  // 清空畫布
-  if (msg.type === "clear") {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    return;
-  }
-
-  // 一條新線開始
-  if (msg.type === "begin") {
-    remoteStrokes[msg.strokeId] = {
-      lastX: msg.x,
-      lastY: msg.y,
-      color: msg.color,
-      size: msg.size,
-      mode: msg.mode
-    };
-    return;
-  }
-
-  // 延續線段（畫線）
-  if (msg.type === "draw") {
-    let s = remoteStrokes[msg.strokeId];
-    if (!s) return;
-
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.lineWidth = s.size;
-    ctx.strokeStyle = (s.mode === "pen" ? s.color : "#ffffff");
-
-    ctx.beginPath();
-    ctx.moveTo(s.lastX, s.lastY);
-    ctx.lineTo(msg.x, msg.y);
-    ctx.stroke();
-
-    // 更新上一點
-    s.lastX = msg.x;
-    s.lastY = msg.y;
-  }
-};
-
-// ========================== QR Code ==========================
-new QRCode(document.getElementById("qr"), {
-  text: location.href,
-  width: 120,
-  height: 120
-});
+// -------- QR Code --------
+QRCode.toCanvas(document.getElementById("qrCode"), `${location.origin}?room=${room}`, {width:80,height:80}, err=>{if(err)console.error(err);});
 </script>
-
 </body>
 </html>
+
 
 
 
