@@ -5,13 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>多人畫畫同步</title>
 <style>
-  body { margin:0; background:#222; color:#fff; font-family:sans-serif; overflow:hidden; }
+  body { margin:0; background:#222; color:#fff; font-family:sans-serif; }
   #toolbar { display:flex; gap:10px; padding:10px; background:#333; align-items:center; justify-content: space-between; }
   #left-toolbar { display:flex; gap:10px; align-items:center; }
-  #canvas { display:block; background:#fff; touch-action:none; position:absolute; top:60px; left:0; }
+  #canvas { display:block; background:#fff; touch-action:none; }
   button,input[type=color],input[type=range] { padding:6px; border-radius:6px; border:none; }
   button { cursor:pointer; }
-  #qrCode, #siteQrCode { width: 80px; height: 80px; }
+  #qrCode { width: 80px; height: 80px; }
 </style>
 </head>
 <body>
@@ -29,7 +29,6 @@
   </div>
   <div style="display:flex; gap:10px; align-items:center;">
     <canvas id="qrCode"></canvas>
-    <canvas id="siteQrCode"></canvas>
   </div>
 </div>
 
@@ -92,7 +91,6 @@ function send(data){ data.sender=name; ws.send(JSON.stringify(data)); }
 const remotePaths = {}; // { sender: { strokeId: {x,y} } }
 
 canvas.onpointerdown = e => {
-  if(e.pointerType==='touch' && e.touches?.length>1) return; // 多指不畫
   drawing = true;
   lastX = e.offsetX;
   lastY = e.offsetY;
@@ -143,41 +141,10 @@ function drawFromServer(m){
 
 // -------- QR Code --------
 QRCode.toCanvas(document.getElementById("qrCode"), `${location.origin}?room=${room}`, {width:80,height:80}, err=>{if(err)console.error(err);});
-QRCode.toCanvas(document.getElementById("siteQrCode"), location.origin, {width:80,height:80}, err=>{if(err)console.error(err);});
-
-// -------- 手機端拖動畫布 --------
-let isDraggingCanvas = false;
-let dragStartX = 0;
-let dragStartY = 0;
-let offsetX = 0;
-let offsetY = 0;
-
-canvas.addEventListener("touchstart", e => {
-  if(e.touches.length===1){
-    const t = e.touches[0];
-    isDraggingCanvas = true;
-    dragStartX = t.clientX - offsetX;
-    dragStartY = t.clientY - offsetY;
-    e.preventDefault();
-  }
-});
-
-canvas.addEventListener("touchmove", e => {
-  if(isDraggingCanvas && e.touches.length===1){
-    const t = e.touches[0];
-    offsetX = t.clientX - dragStartX;
-    offsetY = t.clientY - dragStartY;
-    canvas.style.transform = `translate(${offsetX}px, ${offsetY}px)`;
-    e.preventDefault();
-  }
-});
-
-canvas.addEventListener("touchend", e => {
-  isDraggingCanvas = false;
-});
 </script>
 </body>
 </html>
+
 
 
 
