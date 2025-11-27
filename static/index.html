@@ -85,29 +85,40 @@ ws.onmessage = ev => {
 function send(data){ data.sender=name; ws.send(JSON.stringify(data)); }
 
 // -------- 本地畫筆 --------
-canvas.onpointerdown = e=>{
-  drawing=true; lastX=e.offsetX; lastY=e.offsetY;
-  send({type:"draw", mode, color:currentColor, size:currentSize, x:lastX, y:lastY, begin:true});
+let remotePaths = {}; // { sender: { strokeId: {x,y} } }
+
+canvas.onpointerdown = e => {
+  drawing = true;
+  lastX = e.offsetX;
+  lastY = e.offsetY;
+  const strokeId = Date.now() + "_" + Math.floor(Math.random()*10000);
+  send({type:"draw", mode, color:currentColor, size:currentSize, x:lastX, y:lastY, begin:true, strokeId});
 };
-canvas.onpointermove = e=>{
+
+canvas.onpointermove = e => {
   if(!drawing) return;
   drawLocal(e.offsetX,e.offsetY);
-  send({type:"draw", mode, color:currentColor, size:currentSize, x:e.offsetX, y:e.offsetY});
+  send({type:"draw", mode, color:currentColor, size:currentSize, x:e.offsetX, y:e.offsetY, strokeId});
 };
-canvas.onpointerup = canvas.onpointerleave = ()=>drawing=false;
 
-function drawLocal(x,y){
+function drawFromServer(m){
+  if(m.sender===name) return;
+  const sId = m.strokeId;
+  remotePaths[m.sender] = remotePaths[m.sender] || {};
+  if(m.begin || !remotePaths[m.sender][sId]){
+    remotePaths[m.sender][sId] = {x:m.x,y:m.y};
+    return;
+  }
   ctx.lineCap="round";
   ctx.lineJoin="round";
-  ctx.lineWidth=currentSize;
-  ctx.strokeStyle=(mode==="pen"?currentColor:"#ffffff");
+  ctx.lineWidth=m.size;
+  ctx.strokeStyle=(m.mode==="pen"?m.color:"#ffffff");
   ctx.beginPath();
-  ctx.moveTo(lastX,lastY);
-  ctx.lineTo(x,y);
+  ctx.moveTo(remotePaths[m.sender][sId].x, remotePaths[m.sender][sId].y);
+  ctx.lineTo(m.x,m.y);
   ctx.stroke();
-  lastX=x; lastY=y;
+  remotePaths[m.sender][sId]={x:m.x,y:m.y};
 }
-
 // -------- 遠端畫筆 --------
 const remotePaths = {};
 function drawFromServer(m){
