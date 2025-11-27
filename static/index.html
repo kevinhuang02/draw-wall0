@@ -11,7 +11,7 @@
   #canvas { display:block; background:#fff; touch-action:none; }
   button,input[type=color],input[type=range] { padding:6px; border-radius:6px; border:none; }
   button { cursor:pointer; }
-  #qrCode { width: 80px; height: 80px; }
+  #qrCode, #siteQrCode { width: 80px; height: 80px; }
 </style>
 </head>
 <body>
@@ -27,7 +27,10 @@
     <button id="aiTheme">🎲 生成主題</button>
     <span id="themeText" style="margin-left:20px; font-size:18px;"></span>
   </div>
-  <div id="qrCode"></div>
+  <div style="display:flex; gap:10px; align-items:center;">
+    <canvas id="qrCode"></canvas>
+    <canvas id="siteQrCode"></canvas>
+  </div>
 </div>
 
 <canvas id="canvas"></canvas>
@@ -53,6 +56,7 @@ let currentColor = document.getElementById("colorPicker").value;
 let currentSize = document.getElementById("sizePicker").value;
 let lastX = 0;
 let lastY = 0;
+let strokeId = null;
 
 // -------- 工具列事件 --------
 document.getElementById("pen").onclick = () => mode="pen";
@@ -84,14 +88,14 @@ ws.onmessage = ev => {
 };
 function send(data){ data.sender=name; ws.send(JSON.stringify(data)); }
 
-// -------- 本地畫筆 --------
-let remotePaths = {}; // { sender: { strokeId: {x,y} } }
+// -------- 本地畫筆事件 --------
+const remotePaths = {}; // { sender: { strokeId: {x,y} } }
 
 canvas.onpointerdown = e => {
   drawing = true;
   lastX = e.offsetX;
   lastY = e.offsetY;
-  const strokeId = Date.now() + "_" + Math.floor(Math.random()*10000);
+  strokeId = Date.now() + "_" + Math.floor(Math.random()*10000);
   send({type:"draw", mode, color:currentColor, size:currentSize, x:lastX, y:lastY, begin:true, strokeId});
 };
 
@@ -101,12 +105,28 @@ canvas.onpointermove = e => {
   send({type:"draw", mode, color:currentColor, size:currentSize, x:e.offsetX, y:e.offsetY, strokeId});
 };
 
+canvas.onpointerup = canvas.onpointerleave = () => drawing=false;
+
+function drawLocal(x,y){
+  ctx.lineCap="round";
+  ctx.lineJoin="round";
+  ctx.lineWidth=currentSize;
+  ctx.strokeStyle=(mode==="pen"?currentColor:"#ffffff");
+  ctx.beginPath();
+  ctx.moveTo(lastX,lastY);
+  ctx.lineTo(x,y);
+  ctx.stroke();
+  lastX=x;
+  lastY=y;
+}
+
+// -------- 遠端畫筆 --------
 function drawFromServer(m){
   if(m.sender===name) return;
   const sId = m.strokeId;
   remotePaths[m.sender] = remotePaths[m.sender] || {};
   if(m.begin || !remotePaths[m.sender][sId]){
-    remotePaths[m.sender][sId] = {x:m.x,y:m.y};
+    remotePaths[m.sender][sId] = {x:m.x, y:m.y};
     return;
   }
   ctx.lineCap="round";
@@ -117,26 +137,12 @@ function drawFromServer(m){
   ctx.moveTo(remotePaths[m.sender][sId].x, remotePaths[m.sender][sId].y);
   ctx.lineTo(m.x,m.y);
   ctx.stroke();
-  remotePaths[m.sender][sId]={x:m.x,y:m.y};
-}
-// -------- 遠端畫筆 --------
-const remotePaths = {};
-function drawFromServer(m){
-  if(m.sender===name) return;
-  ctx.lineCap="round";
-  ctx.lineJoin="round";
-  ctx.lineWidth=m.size;
-  ctx.strokeStyle=(m.mode==="pen"?m.color:"#ffffff");
-  if(m.begin || !remotePaths[m.sender]){ remotePaths[m.sender]={x:m.x,y:m.y}; return; }
-  ctx.beginPath();
-  ctx.moveTo(remotePaths[m.sender].x, remotePaths[m.sender].y);
-  ctx.lineTo(m.x,m.y);
-  ctx.stroke();
-  remotePaths[m.sender]={x:m.x,y:m.y};
+  remotePaths[m.sender][sId] = {x:m.x, y:m.y};
 }
 
 // -------- QR Code --------
 QRCode.toCanvas(document.getElementById("qrCode"), `${location.origin}?room=${room}`, {width:80,height:80}, err=>{if(err)console.error(err);});
+QRCode.toCanvas(document.getElementById("siteQrCode"), location.origin, {width:80,height:80}, err=>{if(err)console.error(err);});
 </script>
 </body>
 </html>
