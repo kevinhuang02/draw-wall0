@@ -6,35 +6,11 @@
 <title>多人畫畫同步</title>
 <style>
   body { margin:0; background:#222; color:#fff; font-family:sans-serif; }
-  
-  #toolbar {
-    display:flex; 
-    gap:10px; 
-    padding:10px; 
-    background:#333; 
-    align-items:center; 
-    justify-content: space-between;
-  }
-
+  #toolbar { display:flex; gap:10px; padding:10px; background:#333; align-items:center; justify-content: space-between; }
   #left-toolbar { display:flex; gap:10px; align-items:center; }
-
-  /* ⭐ canvas CSS 寬度固定 100% 螢幕 */
-  #canvas {
-    display:block;
-    background:#fff; 
-    touch-action:none;
-    width:100vw;
-    height:calc(100vh - 60px);
-  }
-
-  button,input[type=color],input[type=range] {
-    padding:6px; 
-    border-radius:6px; 
-    border:none;
-  }
-
+  #canvas { display:block; background:#fff; touch-action:none; }
+  button,input[type=color],input[type=range] { padding:6px; border-radius:6px; border:none; }
   button { cursor:pointer; }
-
   #qrCode { width: 80px; height: 80px; }
 </style>
 </head>
@@ -51,8 +27,9 @@
     <button id="aiTheme">🎲 生成主題</button>
     <span id="themeText" style="margin-left:20px; font-size:18px;"></span>
   </div>
-
-  <canvas id="qrCode"></canvas>
+  <div style="display:flex; gap:10px; align-items:center;">
+    <canvas id="qrCode"></canvas>
+  </div>
 </div>
 
 <canvas id="canvas"></canvas>
@@ -67,13 +44,7 @@ const name = params.get("name") || "user_" + Math.floor(Math.random()*9999);
 // -------- Canvas 初始化 --------
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
-
-/* ⭐ 改成用 bounding box 來設定實際像素，避免手機 offset 錯位 */
-function resize() {
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width;
-    canvas.height = rect.height;
-}
+function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight-60; }
 resize();
 window.onresize = resize;
 
@@ -114,41 +85,26 @@ ws.onmessage = ev => {
   else if(msg.type==="clear") ctx.clearRect(0,0,canvas.width,canvas.height);
   else if(msg.type==="topic") document.getElementById("themeText").textContent = "🎨 主題：" + msg.value;
 };
-
 function send(data){ data.sender=name; ws.send(JSON.stringify(data)); }
 
-// -------- 專門修復手機座標偏移用 --------
-function getPos(e) {
-  const rect = canvas.getBoundingClientRect();
-  return {
-    x: (e.clientX - rect.left),
-    y: (e.clientY - rect.top)
-  };
-}
+// -------- 本地畫筆事件 --------
+const remotePaths = {}; // { sender: { strokeId: {x,y} } }
 
-// -------- 本地畫筆事件（已修正 offsetX 問題） --------
-canvas.addEventListener("pointerdown", e => {
-  const pos = getPos(e);
+canvas.onpointerdown = e => {
   drawing = true;
-  lastX = pos.x;
-  lastY = pos.y;
-
+  lastX = e.offsetX;
+  lastY = e.offsetY;
   strokeId = Date.now() + "_" + Math.floor(Math.random()*10000);
+  send({type:"draw", mode, color:currentColor, size:currentSize, x:lastX, y:lastY, begin:true, strokeId});
+};
 
-  send({ type:"draw", mode, color:currentColor, size:currentSize, x:lastX, y:lastY, begin:true, strokeId });
-});
+canvas.onpointermove = e => {
+  if(!drawing) return;
+  drawLocal(e.offsetX,e.offsetY);
+  send({type:"draw", mode, color:currentColor, size:currentSize, x:e.offsetX, y:e.offsetY, strokeId});
+};
 
-canvas.addEventListener("pointermove", e => {
-  if (!drawing) return;
-
-  const pos = getPos(e);
-  drawLocal(pos.x, pos.y);
-
-  send({ type:"draw", mode, color:currentColor, size:currentSize, x:pos.x, y:pos.y, strokeId });
-});
-
-canvas.addEventListener("pointerup", () => drawing=false);
-canvas.addEventListener("pointerleave", () => drawing=false);
+canvas.onpointerup = canvas.onpointerleave = () => drawing=false;
 
 function drawLocal(x,y){
   ctx.lineCap="round";
@@ -164,39 +120,27 @@ function drawLocal(x,y){
 }
 
 // -------- 遠端畫筆 --------
-const remotePaths = {};
-
 function drawFromServer(m){
   if(m.sender===name) return;
   const sId = m.strokeId;
-
   remotePaths[m.sender] = remotePaths[m.sender] || {};
-
   if(m.begin || !remotePaths[m.sender][sId]){
     remotePaths[m.sender][sId] = {x:m.x, y:m.y};
     return;
   }
-
   ctx.lineCap="round";
   ctx.lineJoin="round";
   ctx.lineWidth=m.size;
   ctx.strokeStyle=(m.mode==="pen"?m.color:"#ffffff");
-
   ctx.beginPath();
   ctx.moveTo(remotePaths[m.sender][sId].x, remotePaths[m.sender][sId].y);
-  ctx.lineTo(m.x, m.y);
+  ctx.lineTo(m.x,m.y);
   ctx.stroke();
-
   remotePaths[m.sender][sId] = {x:m.x, y:m.y};
 }
 
 // -------- QR Code --------
-QRCode.toCanvas(
-  document.getElementById("qrCode"),
-  `${location.origin}?room=${room}`,
-  {width:80,height:80},
-  err=>{if(err)console.error(err);}
-);
+QRCode.toCanvas(document.getElementById("qrCode"), `${location.origin}?room=${room}`, {width:80,height:80}, err=>{if(err)console.error(err);});
 </script>
 </body>
 </html>
