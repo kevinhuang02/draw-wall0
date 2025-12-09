@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>多人畫畫同步</title>
+<title>多人畫畫同步 + 控制模式</title>
 <style>
   body { margin:0; background:#222; color:#fff; font-family:sans-serif; }
   #toolbar { display:flex; gap:10px; padding:10px; background:#333; align-items:center; justify-content: space-between; }
@@ -20,12 +20,12 @@
   <div id="left-toolbar">
     <button id="pen">✏️ 筆刷</button>
     <button id="eraser">🧽 橡皮擦</button>
-    <button id="controlMode">📱 控制模式</button> <!-- 新增 -->
     <input type="color" id="colorPicker" value="#000000">
     <input type="range" id="sizePicker" min="2" max="40" value="5">
     <button id="clear">🗑️ 全部清除</button>
     <button id="save">💾 儲存畫布</button>
     <button id="aiTheme">🎲 生成主題</button>
+    <button id="controlMode">🎮 控制模式：關</button>
     <span id="themeText" style="margin-left:20px; font-size:18px;"></span>
   </div>
   <div style="display:flex; gap:10px; align-items:center;">
@@ -49,71 +49,73 @@ function resize() { canvas.width = window.innerWidth; canvas.height = window.inn
 resize();
 window.onresize = resize;
 
-// -------- 模式 --------
-let mode = "pen"; // pen / eraser / control
-
-document.getElementById("pen").onclick = () => mode="pen";
-document.getElementById("eraser").onclick = () => mode="eraser";
-document.getElementById("controlMode").onclick = () => {
-  mode = (mode === "control" ? "pen" : "control");
-  alert(`已切換為：${mode === "control" ? "📱 控制模式" : "✏️ 畫畫模式"}`);
-};
-
-// -------- 畫筆參數 --------
+// -------- 狀態變數 --------
 let drawing = false;
+let mode = "pen";
+let controlMode = false;
 let currentColor = document.getElementById("colorPicker").value;
 let currentSize = document.getElementById("sizePicker").value;
 let lastX = 0;
 let lastY = 0;
 let strokeId = null;
 
+// -------- 工具列事件 --------
+document.getElementById("pen").onclick = () => mode="pen";
+document.getElementById("eraser").onclick = () => mode="eraser";
 document.getElementById("colorPicker").oninput = e => currentColor = e.target.value;
 document.getElementById("sizePicker").oninput = e => currentSize = e.target.value;
 
-// -------- WebSocket --------
-const ws = new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/${room}`);
-
-ws.onmessage = ev => {
-  const msg = JSON.parse(ev.data);
-
-  if(msg.type==="draw") drawFromServer(msg);
-  else if(msg.type==="clear") ctx.clearRect(0,0,canvas.width,canvas.height);
-  else if(msg.type==="topic") document.getElementById("themeText").textContent = "🎨 主題：" + msg.value;
-  else if(msg.type==="control") handleControl(msg);
-};
-
-function send(data){ data.sender=name; ws.send(JSON.stringify(data)); }
-
-// -------- 清除 --------
 document.getElementById("clear").onclick = () => {
   ctx.clearRect(0,0,canvas.width,canvas.height);
   send({type:"clear"});
 };
 
-// -------- 本地畫筆事件（畫畫模式） --------
+document.getElementById("save").onclick = () => {
+  const link = document.createElement("a");
+  link.download = `canvas_${Date.now()}.png`;
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+};
+
+document.getElementById("aiTheme").onclick = () => send({type:"generateTheme"});
+
+document.getElementById("controlMode").onclick = () => {
+  controlMode = !controlMode;
+  document.getElementById("controlMode").textContent = controlMode ? "🎮 控制模式：開" : "🎮 控制模式：關";
+};
+
+// -------- WebSocket --------
+const ws = new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/${room}`);
+ws.onmessage = ev => {
+  const msg = JSON.parse(ev.data);
+  if(msg.type==="draw") drawFromServer(msg);
+  else if(msg.type==="clear") ctx.clearRect(0,0,canvas.width,canvas.height);
+  else if(msg.type==="topic") document.getElementById("themeText").textContent = "🎨 主題：" + msg.value;
+  else if(msg.type==="moveFocus") moveFocusArea(msg.direction);
+};
+
+function send(data){ data.sender=name; ws.send(JSON.stringify(data)); }
+
+// -------- 本地畫筆事件 --------
 const remotePaths = {};
 
 canvas.onpointerdown = e => {
-  if(mode === "control") return; // 控制模式不畫線
-
+  if(controlMode) return;
   drawing = true;
   lastX = e.offsetX;
   lastY = e.offsetY;
   strokeId = Date.now() + "_" + Math.floor(Math.random()*10000);
-
   send({type:"draw", mode, color:currentColor, size:currentSize, x:lastX, y:lastY, begin:true, strokeId});
 };
 
 canvas.onpointermove = e => {
-  if(mode === "control") return;
+  if(controlMode) return;
   if(!drawing) return;
   drawLocal(e.offsetX,e.offsetY);
   send({type:"draw", mode, color:currentColor, size:currentSize, x:e.offsetX, y:e.offsetY, strokeId});
 };
 
 canvas.onpointerup = canvas.onpointerleave = () => drawing=false;
-
-// -------- 本地畫 ----------
 
 function drawLocal(x,y){
   ctx.lineCap="round";
@@ -128,17 +130,15 @@ function drawLocal(x,y){
   lastY=y;
 }
 
-// -------- 遠端畫 ----------
+// -------- 遠端畫筆 --------
 function drawFromServer(m){
   if(m.sender===name) return;
   const sId = m.strokeId;
-
   remotePaths[m.sender] = remotePaths[m.sender] || {};
   if(m.begin || !remotePaths[m.sender][sId]){
     remotePaths[m.sender][sId] = {x:m.x, y:m.y};
     return;
   }
-
   ctx.lineCap="round";
   ctx.lineJoin="round";
   ctx.lineWidth=m.size;
@@ -147,54 +147,52 @@ function drawFromServer(m){
   ctx.moveTo(remotePaths[m.sender][sId].x, remotePaths[m.sender][sId].y);
   ctx.lineTo(m.x,m.y);
   ctx.stroke();
-
   remotePaths[m.sender][sId] = {x:m.x, y:m.y};
 }
 
-// --------------------
-// 📱 控制模式：滑動偵測
-// --------------------
-let startX = 0;
-let startY = 0;
+// -------- 控制模式：滑動方向偵測 --------
+let startX = 0, startY = 0;
 
 canvas.addEventListener("touchstart", e => {
-  if(mode !== "control") return;
-  const t = e.touches[0];
-  startX = t.clientX;
-  startY = t.clientY;
+    if (!controlMode) return;
+    const t = e.changedTouches[0];
+    startX = t.pageX;
+    startY = t.pageY;
 });
 
 canvas.addEventListener("touchend", e => {
-  if(mode !== "control") return;
+    if (!controlMode) return;
+    const t = e.changedTouches[0];
+    let dx = t.pageX - startX;
+    let dy = t.pageY - startY;
 
-  const t = e.changedTouches[0];
-  const dx = t.clientX - startX;
-  const dy = t.clientY - startY;
+    if (Math.abs(dx) < 30 && Math.abs(dy) < 30) return;
 
-  const absX = Math.abs(dx);
-  const absY = Math.abs(dy);
+    let direction = "";
 
-  let dir = "";
+    if (Math.abs(dx) > Math.abs(dy)) direction = dx > 0 ? "right" : "left";
+    else direction = dy > 0 ? "down" : "up";
 
-  if(absX < 30 && absY < 30) return; // 太小忽略
-
-  if(absX > absY) dir = dx > 0 ? "right" : "left";
-  else dir = dy > 0 ? "down" : "up";
-
-  send({type:"control", direction: dir});
+    send({ type: "moveFocus", direction });
 });
 
-// -------- 電視牆收到控制指令 ----------
-function handleControl(m){
-  if(m.sender === name) return;
+// -------- 電視牆四方向顯示焦點 --------
+function moveFocusArea(dir) {
+    drawFocusArea(dir);
+}
 
-  console.log("收到方向控制：", m.direction);
+function drawFocusArea(dir) {
+    ctx.clearRect(0,0,canvas.width,canvas.height);
 
-  ctx.fillStyle = "rgba(255,0,0,0.2)";
-  if(m.direction === "up") ctx.fillRect(0,0,canvas.width,canvas.height/3);
-  if(m.direction === "down") ctx.fillRect(0,canvas.height*2/3,canvas.width,canvas.height/3);
-  if(m.direction === "left") ctx.fillRect(0,0,canvas.width/3,canvas.height);
-  if(m.direction === "right") ctx.fillRect(canvas.width*2/3,0,canvas.width/3,canvas.height);
+    const w = canvas.width;
+    const h = canvas.height;
+
+    ctx.fillStyle = "rgba(255, 200, 0, 0.25)";
+
+    if (dir === "up") ctx.fillRect(0, 0, w, h/3);
+    if (dir === "down") ctx.fillRect(0, (h/3)*2, w, h/3);
+    if (dir === "left") ctx.fillRect(0, 0, w/3, h);
+    if (dir === "right") ctx.fillRect((w/3)*2, 0, w/3, h);
 }
 
 // -------- QR Code --------
@@ -202,6 +200,7 @@ QRCode.toCanvas(document.getElementById("qrCode"), `${location.origin}?room=${ro
 </script>
 </body>
 </html>
+
 
 
 
