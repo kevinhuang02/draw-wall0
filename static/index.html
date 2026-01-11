@@ -3,179 +3,208 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>多人畫畫同步 + Matter.js</title>
+<title>多人畫畫同步 + 控制模式</title>
 <style>
   body { margin:0; background:#222; color:#fff; font-family:sans-serif; }
   #toolbar { display:flex; gap:10px; padding:10px; background:#333; align-items:center; justify-content: space-between; }
   #left-toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
-  canvas {
+  #canvas {
     display:block;
     background:#fff;
     touch-action:none;
     margin:0 auto;
-    position:absolute;
-    left:0; right:0;
   }
-  #matterCanvas { pointer-events:none; }
-  button,input { padding:6px; border-radius:6px; border:none; }
+  button,input[type=color],input[type=range] {
+    padding:6px; border-radius:6px; border:none;
+  }
+  button { cursor:pointer; }
+  #qrCode { width:80px; height:80px; }
 </style>
 </head>
 <body>
 
 <div id="toolbar">
   <div id="left-toolbar">
-    <button id="pen">✏️</button>
-    <button id="eraser">🧽</button>
+    <button id="pen">✏️ 筆刷</button>
+    <button id="eraser">🧽 橡皮擦</button>
     <input type="color" id="colorPicker" value="#000000">
     <input type="range" id="sizePicker" min="2" max="40" value="5">
-    <button id="clear">🗑️</button>
-    <button id="save">💾</button>
-    <button id="selectBtn">📦 框選</button>
+    <button id="clear">🗑️ 清除</button>
+    <button id="save">💾 儲存</button>
+    <button id="aiTheme">🎲 主題</button>
+    <span id="themeText" style="margin-left:10px;"></span>
   </div>
+  <canvas id="qrCode"></canvas>
 </div>
 
-<canvas id="drawCanvas"></canvas>
-<canvas id="selectCanvas"></canvas>
-<canvas id="matterCanvas"></canvas>
+<canvas id="canvas"></canvas>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.20.0/matter.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
 <script>
-// ===== 基本設定 =====
+// =====================
+// 🔒 虛擬畫布設定（核心）
+// =====================
 const VIRTUAL_WIDTH = 1920;
 const VIRTUAL_HEIGHT = 1080;
 
-const drawCanvas = document.getElementById("drawCanvas");
-const selectCanvas = document.getElementById("selectCanvas");
-const matterCanvas = document.getElementById("matterCanvas");
+// -------- URL 參數 --------
+const params = new URLSearchParams(location.search);
+const room = params.get("room") || "room1";
+const name = params.get("name") || "user_" + Math.floor(Math.random()*9999);
 
-[drawCanvas, selectCanvas, matterCanvas].forEach(c=>{
-  c.width = VIRTUAL_WIDTH;
-  c.height = VIRTUAL_HEIGHT;
-});
+// -------- Canvas 初始化 --------
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
 
-const ctx = drawCanvas.getContext("2d");
-const sctx = selectCanvas.getContext("2d");
+function resize(){
+  const scaleX = window.innerWidth / VIRTUAL_WIDTH;
+  const scaleY = (window.innerHeight - 60) / VIRTUAL_HEIGHT;
+  const scale = Math.min(scaleX, scaleY);
 
-// ===== 工具 =====
-let mode="pen", drawing=false;
-let color=colorPicker.value, size=sizePicker.value;
-let lx,ly;
+  canvas.width = VIRTUAL_WIDTH;
+  canvas.height = VIRTUAL_HEIGHT;
 
-pen.onclick=()=>mode="pen";
-eraser.onclick=()=>mode="eraser";
-colorPicker.oninput=e=>color=e.target.value;
-sizePicker.oninput=e=>size=e.target.value;
+  canvas.style.width = VIRTUAL_WIDTH * scale + "px";
+  canvas.style.height = VIRTUAL_HEIGHT * scale + "px";
+}
+resize();
+window.addEventListener("resize", resize);
 
-function pos(e){
-  const r=drawCanvas.getBoundingClientRect();
+// -------- 座標轉換（螢幕 → 虛擬） --------
+function getVirtualPos(e){
+  const rect = canvas.getBoundingClientRect();
   return {
-    x:(e.clientX-r.left)*(VIRTUAL_WIDTH/r.width),
-    y:(e.clientY-r.top)*(VIRTUAL_HEIGHT/r.height)
+    x: (e.clientX - rect.left) * (VIRTUAL_WIDTH / rect.width),
+    y: (e.clientY - rect.top) * (VIRTUAL_HEIGHT / rect.height)
   };
 }
 
-// ===== 畫畫 =====
-drawCanvas.onpointerdown=e=>{
-  if(selectMode) return;
-  drawing=true;
-  const p=pos(e); lx=p.x; ly=p.y;
-};
-drawCanvas.onpointermove=e=>{
-  if(!drawing||selectMode) return;
-  const p=pos(e);
-  ctx.strokeStyle=mode==="pen"?color:"#fff";
-  ctx.lineWidth=size;
-  ctx.lineCap="round";
-  ctx.beginPath();
-  ctx.moveTo(lx,ly); ctx.lineTo(p.x,p.y); ctx.stroke();
-  lx=p.x; ly=p.y;
-};
-drawCanvas.onpointerup=()=>drawing=false;
+// -------- 狀態 --------
+let drawing = false;
+let mode = "pen";
+let currentColor = colorPicker.value;
+let currentSize = sizePicker.value;
+let lastX = 0, lastY = 0;
+let strokeId = null;
 
-clear.onclick=()=>ctx.clearRect(0,0,VIRTUAL_WIDTH,VIRTUAL_HEIGHT);
-save.onclick=()=>{
-  const a=document.createElement("a");
-  a.download="canvas.png";
-  a.href=drawCanvas.toDataURL();
+// -------- 工具列 --------
+pen.onclick = () => mode="pen";
+eraser.onclick = () => mode="eraser";
+colorPicker.oninput = e => currentColor = e.target.value;
+sizePicker.oninput = e => currentSize = e.target.value;
+
+clear.onclick = () => {
+  ctx.clearRect(0,0,VIRTUAL_WIDTH,VIRTUAL_HEIGHT);
+  send({type:"clear"});
+};
+
+save.onclick = () => {
+  const a = document.createElement("a");
+  a.download = `canvas_${Date.now()}.png`;
+  a.href = canvas.toDataURL();
   a.click();
 };
 
-// ===== Matter.js =====
-const {Engine,Render,Runner,Bodies,World}=Matter;
-const engine=Engine.create();
+aiTheme.onclick = () => send({type:"generateTheme"});
 
-const render=Render.create({
-  canvas:matterCanvas,
-  engine,
-  options:{
-    width:VIRTUAL_WIDTH,
-    height:VIRTUAL_HEIGHT,
-    background:"transparent",
-    wireframes:false
-  }
-});
-Render.run(render);
-Runner.run(Runner.create(),engine);
+controlMode.onclick = () => {
+  controlMode = !controlMode;
+  controlModeBtn.textContent = controlMode ? "🎮 控制：開" : "🎮 控制：關";
+};
+const controlModeBtn = document.getElementById("controlMode");
 
-// 地板
-World.add(engine.world,
-  Bodies.rectangle(
-    VIRTUAL_WIDTH/2,
-    VIRTUAL_HEIGHT+30,
-    VIRTUAL_WIDTH,
-    60,
-    {isStatic:true}
-  )
-);
+// -------- WebSocket --------
+const ws = new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/${room}`);
 
-// ===== 框選轉物件 =====
-let selectMode=false;
-let sx,sy,ex,ey;
-
-selectBtn.onclick=()=>{
-  selectMode=!selectMode;
-  selectBtn.textContent=selectMode?"✅ 框選中":"📦 框選";
+ws.onmessage = e => {
+  const m = JSON.parse(e.data);
+  if(m.type==="draw") drawFromServer(m);
+  if(m.type==="clear") ctx.clearRect(0,0,VIRTUAL_WIDTH,VIRTUAL_HEIGHT);
+  if(m.type==="topic") themeText.textContent = "🎨 " + m.value;
+  if(m.type==="moveFocus") drawFocusArea(m.direction);
 };
 
-selectCanvas.onpointerdown=e=>{
-  if(!selectMode) return;
-  const p=pos(e);
-  sx=p.x; sy=p.y;
-};
-
-selectCanvas.onpointermove=e=>{
-  if(!selectMode||sx==null) return;
-  const p=pos(e); ex=p.x; ey=p.y;
-  sctx.clearRect(0,0,VIRTUAL_WIDTH,VIRTUAL_HEIGHT);
-  sctx.strokeStyle="yellow";
-  sctx.setLineDash([6,4]);
-  sctx.strokeRect(sx,sy,ex-sx,ey-sy);
-};
-
-selectCanvas.onpointerup=()=>{
-  if(!selectMode) return;
-  sctx.clearRect(0,0,VIRTUAL_WIDTH,VIRTUAL_HEIGHT);
-  createBody(sx,sy,ex,ey);
-  sx=sy=null;
-};
-
-function createBody(x1,y1,x2,y2){
-  const x=Math.min(x1,x2), y=Math.min(y1,y2);
-  const w=Math.abs(x2-x1), h=Math.abs(y2-y1);
-  if(w<10||h<10) return;
-
-  const temp=document.createElement("canvas");
-  temp.width=w; temp.height=h;
-  temp.getContext("2d").drawImage(drawCanvas,x,y,w,h,0,0,w,h);
-
-  const body=Bodies.rectangle(
-    x+w/2,y+h/2,w,h,{
-      restitution:0.6,
-      render:{sprite:{texture:temp.toDataURL()}}
-    }
-  );
-  World.add(engine.world,body);
+function send(data){
+  data.sender = name;
+  ws.send(JSON.stringify(data));
 }
+
+// -------- 本地畫畫 --------
+const remotePaths = {};
+
+canvas.onpointerdown = e => {
+  if(controlMode) return;
+  drawing = true;
+  const p = getVirtualPos(e);
+  lastX = p.x;
+  lastY = p.y;
+  strokeId = Date.now()+"_"+Math.random();
+  send({type:"draw", begin:true, strokeId, mode, color:currentColor, size:currentSize, x:lastX, y:lastY});
+};
+
+canvas.onpointermove = e => {
+  if(!drawing || controlMode) return;
+  const p = getVirtualPos(e);
+  drawLine(lastX,lastY,p.x,p.y,mode,currentColor,currentSize);
+  send({type:"draw", strokeId, mode, color:currentColor, size:currentSize, x:p.x, y:p.y});
+  lastX = p.x;
+  lastY = p.y;
+};
+
+canvas.onpointerup = canvas.onpointerleave = () => drawing=false;
+
+function drawLine(x1,y1,x2,y2,mode,color,size){
+  ctx.lineCap="round";
+  ctx.lineJoin="round";
+  ctx.lineWidth=size;
+  ctx.strokeStyle = mode==="pen" ? color : "#fff";
+  ctx.beginPath();
+  ctx.moveTo(x1,y1);
+  ctx.lineTo(x2,y2);
+  ctx.stroke();
+}
+
+// -------- 遠端畫畫 --------
+function drawFromServer(m){
+  if(m.sender===name) return;
+  remotePaths[m.sender] ??= {};
+  if(m.begin){
+    remotePaths[m.sender][m.strokeId] = {x:m.x,y:m.y};
+    return;
+  }
+  const p = remotePaths[m.sender][m.strokeId];
+  if(!p) return;
+  drawLine(p.x,p.y,m.x,m.y,m.mode,m.color,m.size);
+  remotePaths[m.sender][m.strokeId] = {x:m.x,y:m.y};
+}
+
+// -------- 控制模式（滑動） --------
+let sx=0, sy=0;
+canvas.addEventListener("touchstart", e=>{
+  if(!controlMode) return;
+  const t=e.changedTouches[0];
+  sx=t.pageX; sy=t.pageY;
+});
+canvas.addEventListener("touchend", e=>{
+  if(!controlMode) return;
+  const t=e.changedTouches[0];
+  const dx=t.pageX-sx, dy=t.pageY-sy;
+  if(Math.abs(dx)<30 && Math.abs(dy)<30) return;
+  send({type:"moveFocus", direction: Math.abs(dx)>Math.abs(dy) ? (dx>0?"right":"left") : (dy>0?"down":"up")});
+});
+
+// -------- 電視牆焦點 --------
+function drawFocusArea(dir){
+  ctx.clearRect(0,0,VIRTUAL_WIDTH,VIRTUAL_HEIGHT);
+  ctx.fillStyle="rgba(255,200,0,0.25)";
+  if(dir==="up") ctx.fillRect(0,0,VIRTUAL_WIDTH,VIRTUAL_HEIGHT/3);
+  if(dir==="down") ctx.fillRect(0,VIRTUAL_HEIGHT*2/3,VIRTUAL_WIDTH,VIRTUAL_HEIGHT/3);
+  if(dir==="left") ctx.fillRect(0,0,VIRTUAL_WIDTH/3,VIRTUAL_HEIGHT);
+  if(dir==="right") ctx.fillRect(VIRTUAL_WIDTH*2/3,0,VIRTUAL_WIDTH/3,VIRTUAL_HEIGHT);
+}
+
+// -------- QR --------
+QRCode.toCanvas(qrCode, `${location.origin}?room=${room}`, {width:80});
 </script>
 </body>
 </html>
