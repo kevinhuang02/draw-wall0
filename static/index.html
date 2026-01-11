@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>多人畫畫同步 + 控制模式</title>
+<title>多人畫畫同步</title>
 <style>
   body { margin:0; background:#222; color:#fff; font-family:sans-serif; }
   #toolbar { display:flex; gap:10px; padding:10px; background:#333; align-items:center; justify-content: space-between; }
@@ -33,6 +33,7 @@
     <button id="save">💾 儲存</button>
     <button id="aiTheme">🎲 主題</button>
     <span id="themeText" style="margin-left:10px;"></span>
+    <button id="controlMode">🎮 控制：關</button>
   </div>
   <canvas id="qrCode"></canvas>
 </div>
@@ -86,6 +87,7 @@ let currentColor = colorPicker.value;
 let currentSize = sizePicker.value;
 let lastX = 0, lastY = 0;
 let strokeId = null;
+let controlModeActive = false;
 
 // -------- 工具列 --------
 pen.onclick = () => mode="pen";
@@ -107,11 +109,11 @@ save.onclick = () => {
 
 aiTheme.onclick = () => send({type:"generateTheme"});
 
-controlMode.onclick = () => {
-  controlMode = !controlMode;
-  controlModeBtn.textContent = controlMode ? "🎮 控制：開" : "🎮 控制：關";
-};
 const controlModeBtn = document.getElementById("controlMode");
+controlModeBtn.onclick = () => {
+  controlModeActive = !controlModeActive;
+  controlModeBtn.textContent = controlModeActive ? "🎮 控制：開" : "🎮 控制：關";
+};
 
 // -------- WebSocket --------
 const ws = new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/${room}`);
@@ -132,27 +134,52 @@ function send(data){
 // -------- 本地畫畫 --------
 const remotePaths = {};
 
-canvas.onpointerdown = e => {
-  if(controlMode) return;
+// --- pointer & touch ---
+function startDraw(p){
   drawing = true;
-  const p = getVirtualPos(e);
   lastX = p.x;
   lastY = p.y;
   strokeId = Date.now()+"_"+Math.random();
   send({type:"draw", begin:true, strokeId, mode, color:currentColor, size:currentSize, x:lastX, y:lastY});
-};
+}
 
-canvas.onpointermove = e => {
-  if(!drawing || controlMode) return;
-  const p = getVirtualPos(e);
+function moveDraw(p){
   drawLine(lastX,lastY,p.x,p.y,mode,currentColor,currentSize);
   send({type:"draw", strokeId, mode, color:currentColor, size:currentSize, x:p.x, y:p.y});
   lastX = p.x;
   lastY = p.y;
-};
+}
 
+// pointer events
+canvas.onpointerdown = e => {
+  if(controlModeActive) return;
+  startDraw(getVirtualPos(e));
+};
+canvas.onpointermove = e => {
+  if(!drawing || controlModeActive) return;
+  moveDraw(getVirtualPos(e));
+};
 canvas.onpointerup = canvas.onpointerleave = () => drawing=false;
 
+// touch events
+canvas.addEventListener("touchstart", e=>{
+  if(controlModeActive) return;
+  e.preventDefault();
+  const t = e.changedTouches[0];
+  startDraw(getVirtualPos(t));
+});
+canvas.addEventListener("touchmove", e=>{
+  if(!drawing || controlModeActive) return;
+  e.preventDefault();
+  const t = e.changedTouches[0];
+  moveDraw(getVirtualPos(t));
+});
+canvas.addEventListener("touchend", e=>{
+  if(controlModeActive) return;
+  drawing=false;
+});
+
+// -------- 畫線 --------
 function drawLine(x1,y1,x2,y2,mode,color,size){
   ctx.lineCap="round";
   ctx.lineJoin="round";
@@ -181,12 +208,12 @@ function drawFromServer(m){
 // -------- 控制模式（滑動） --------
 let sx=0, sy=0;
 canvas.addEventListener("touchstart", e=>{
-  if(!controlMode) return;
+  if(!controlModeActive) return;
   const t=e.changedTouches[0];
   sx=t.pageX; sy=t.pageY;
 });
 canvas.addEventListener("touchend", e=>{
-  if(!controlMode) return;
+  if(!controlModeActive) return;
   const t=e.changedTouches[0];
   const dx=t.pageX-sx, dy=t.pageY-sy;
   if(Math.abs(dx)<30 && Math.abs(dy)<30) return;
@@ -208,6 +235,7 @@ QRCode.toCanvas(qrCode, `${location.origin}?room=${room}`, {width:80});
 </script>
 </body>
 </html>
+
 
 
 
