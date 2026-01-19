@@ -140,6 +140,11 @@ ws.onmessage = e => {
   if(m.type==="draw") drawFromServer(m);
   if(m.type==="clear") ctx.clearRect(0,0,VIRTUAL_WIDTH,VIRTUAL_HEIGHT);
   if(m.type==="topic") themeText.textContent = "🎨 " + m.value;
+  // ✅ AI 故事同步顯示
+  if(m.type === "story"){
+    storyBox.style.display = "block";
+    storyBox.textContent = "📖 " + m.title + "\n\n" + m.story;
+  }
 };
 
 function send(data){
@@ -210,11 +215,19 @@ aiStory.onclick = async () => {
         canvas: canvas.toDataURL()
       })
     });
-    const data = await res.json();
-    storyBox.textContent = "📖 故事開始：\n\n" + data.story;
-  }catch{
-    storyBox.textContent = "❌ AI 故事產生失敗";
-  }
+aiStory.onclick = async () => {
+  storyBox.style.display = "block";
+  storyBox.textContent = "🧠 AI 正在生成故事中...";
+
+  await fetch("/ai/story", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({
+      room,
+      theme: themeText.textContent || "自由創作",
+      canvas: canvas.toDataURL()
+    })
+  });
 };
 
 // -------- 控制模式（滑動） --------

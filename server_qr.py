@@ -208,6 +208,7 @@ async def ai_story(data: dict = Body(...)):
     """
     接收前端 canvas base64，回傳文字故事
     """
+    room = data.get("room")
     canvas = data.get("canvas")
     theme = data.get("theme", "自由創作")
 
@@ -221,6 +222,15 @@ async def ai_story(data: dict = Body(...)):
     story_text = "\n".join(
         n.get("text", "") for n in narration
     )
+# 要同步給所有人用的訊息
+    msg = {
+        "type": "story",
+        "title": story_json.get("title", "AI 故事"),
+        "story": story_text
+    }
+
+    # ✅ 關鍵：WebSocket 廣播
+    await broadcast(room, json.dumps(msg))
 
     return {
         "title": story_json.get("title", "AI 故事"),
