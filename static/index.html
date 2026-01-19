@@ -19,6 +19,23 @@
   }
   button { cursor:pointer; }
   #qrCode { width:80px; height:80px; }
+
+  /* 📖 AI 故事區 */
+  #storyBox {
+    position:fixed;
+    bottom:0;
+    left:0;
+    right:0;
+    max-height:40%;
+    overflow:auto;
+    background:rgba(0,0,0,0.85);
+    color:#fff;
+    padding:16px;
+    font-size:18px;
+    display:none;
+    line-height:1.6;
+    z-index:999;
+  }
 </style>
 </head>
 <body>
@@ -32,6 +49,7 @@
     <button id="clear">🗑️ 清除</button>
     <button id="save">💾 儲存</button>
     <button id="aiTheme">🎲 主題</button>
+    <button id="aiStory">📖 AI 故事</button>
     <span id="themeText" style="margin-left:10px;"></span>
     <button id="controlMode">🎮 控制：關</button>
   </div>
@@ -40,20 +58,22 @@
 
 <canvas id="canvas"></canvas>
 
+<div id="storyBox"></div>
+
 <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
 <script>
 // =====================
-// 🔒 虛擬畫布設定（核心）
+// 🔒 虛擬畫布設定
 // =====================
 const VIRTUAL_WIDTH = 1920;
 const VIRTUAL_HEIGHT = 1080;
 
-// -------- URL 參數 --------
+// URL 參數
 const params = new URLSearchParams(location.search);
 const room = params.get("room") || "room1";
 const name = params.get("name") || "user_" + Math.floor(Math.random()*9999);
 
-// -------- Canvas 初始化 --------
+// Canvas
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 
@@ -61,17 +81,15 @@ function resize(){
   const scaleX = window.innerWidth / VIRTUAL_WIDTH;
   const scaleY = (window.innerHeight - 60) / VIRTUAL_HEIGHT;
   const scale = Math.min(scaleX, scaleY);
-
   canvas.width = VIRTUAL_WIDTH;
   canvas.height = VIRTUAL_HEIGHT;
-
   canvas.style.width = VIRTUAL_WIDTH * scale + "px";
   canvas.style.height = VIRTUAL_HEIGHT * scale + "px";
 }
 resize();
 window.addEventListener("resize", resize);
 
-// -------- 座標轉換（螢幕 → 虛擬） --------
+// 座標轉換
 function getVirtualPos(e){
   const rect = canvas.getBoundingClientRect();
   return {
@@ -80,7 +98,7 @@ function getVirtualPos(e){
   };
 }
 
-// -------- 狀態 --------
+// 狀態
 let drawing = false;
 let mode = "pen";
 let currentColor = colorPicker.value;
@@ -89,7 +107,7 @@ let lastX = 0, lastY = 0;
 let strokeId = null;
 let controlModeActive = false;
 
-// -------- 工具列 --------
+// 工具
 pen.onclick = () => mode="pen";
 eraser.onclick = () => mode="eraser";
 colorPicker.oninput = e => currentColor = e.target.value;
@@ -109,13 +127,12 @@ save.onclick = () => {
 
 aiTheme.onclick = () => send({type:"generateTheme"});
 
-const controlModeBtn = document.getElementById("controlMode");
-controlModeBtn.onclick = () => {
+controlMode.onclick = () => {
   controlModeActive = !controlModeActive;
-  controlModeBtn.textContent = controlModeActive ? "🎮 控制：開" : "🎮 控制：關";
+  controlMode.textContent = controlModeActive ? "🎮 控制：開" : "🎮 控制：關";
 };
 
-// -------- WebSocket --------
+// WebSocket
 const ws = new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/${room}`);
 
 ws.onmessage = e => {
@@ -123,7 +140,6 @@ ws.onmessage = e => {
   if(m.type==="draw") drawFromServer(m);
   if(m.type==="clear") ctx.clearRect(0,0,VIRTUAL_WIDTH,VIRTUAL_HEIGHT);
   if(m.type==="topic") themeText.textContent = "🎨 " + m.value;
-  if(m.type==="moveFocus") drawFocusArea(m.direction);
 };
 
 function send(data){
@@ -131,10 +147,9 @@ function send(data){
   ws.send(JSON.stringify(data));
 }
 
-// -------- 本地畫畫 --------
+// 畫畫
 const remotePaths = {};
 
-// --- pointer & touch ---
 function startDraw(p){
   drawing = true;
   lastX = p.x;
@@ -150,36 +165,11 @@ function moveDraw(p){
   lastY = p.y;
 }
 
-// pointer events
-canvas.onpointerdown = e => {
-  if(controlModeActive) return;
-  startDraw(getVirtualPos(e));
-};
-canvas.onpointermove = e => {
-  if(!drawing || controlModeActive) return;
-  moveDraw(getVirtualPos(e));
-};
+canvas.onpointerdown = e => { if(!controlModeActive) startDraw(getVirtualPos(e)); };
+canvas.onpointermove = e => { if(drawing && !controlModeActive) moveDraw(getVirtualPos(e)); };
 canvas.onpointerup = canvas.onpointerleave = () => drawing=false;
 
-// touch events
-canvas.addEventListener("touchstart", e=>{
-  if(controlModeActive) return;
-  e.preventDefault();
-  const t = e.changedTouches[0];
-  startDraw(getVirtualPos(t));
-});
-canvas.addEventListener("touchmove", e=>{
-  if(!drawing || controlModeActive) return;
-  e.preventDefault();
-  const t = e.changedTouches[0];
-  moveDraw(getVirtualPos(t));
-});
-canvas.addEventListener("touchend", e=>{
-  if(controlModeActive) return;
-  drawing=false;
-});
-
-// -------- 畫線 --------
+// 畫線
 function drawLine(x1,y1,x2,y2,mode,color,size){
   ctx.lineCap="round";
   ctx.lineJoin="round";
@@ -191,7 +181,6 @@ function drawLine(x1,y1,x2,y2,mode,color,size){
   ctx.stroke();
 }
 
-// -------- 遠端畫畫 --------
 function drawFromServer(m){
   if(m.sender===name) return;
   remotePaths[m.sender] ??= {};
@@ -204,6 +193,29 @@ function drawFromServer(m){
   drawLine(p.x,p.y,m.x,m.y,m.mode,m.color,m.size);
   remotePaths[m.sender][m.strokeId] = {x:m.x,y:m.y};
 }
+
+// 📖 AI 故事
+const storyBox = document.getElementById("storyBox");
+aiStory.onclick = async () => {
+  storyBox.style.display = "block";
+  storyBox.textContent = "🧠 AI 正在生成故事中...";
+
+  try{
+    const res = await fetch("/ai/story",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({
+        room,
+        theme: themeText.textContent || "自由創作",
+        canvas: canvas.toDataURL()
+      })
+    });
+    const data = await res.json();
+    storyBox.textContent = "📖 故事開始：\n\n" + data.story;
+  }catch{
+    storyBox.textContent = "❌ AI 故事產生失敗";
+  }
+};
 
 // -------- 控制模式（滑動） --------
 let sx=0, sy=0;
@@ -235,6 +247,8 @@ QRCode.toCanvas(qrCode, `${location.origin}?room=${room}`, {width:80});
 </script>
 </body>
 </html>
+
+
 
 
 

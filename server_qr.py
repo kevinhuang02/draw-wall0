@@ -12,13 +12,16 @@ import qrcode
 import io
 import random
 from typing import Dict, Set, List
+from openai import OpenAI
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("server_qr")
 
 app = FastAPI()
 
+# --------------------
 # CORS
+# --------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -27,185 +30,186 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Render 環境網址
+# --------------------
+# OpenAI
+# --------------------
+client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+# --------------------
+# Render / Static
+# --------------------
 RENDER_BASE_URL = os.environ.get("RENDER_EXTERNAL_URL")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
-# 掛載 static
 if os.path.exists(STATIC_DIR):
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-else:
-    logger.warning("⚠ static 資料夾不存在，Render 需要 static/index.html")
 
-# 隨機主題
+# --------------------
+# 主題
+# --------------------
 def get_random_topic():
-    topics = [
+    return random.choice([
         "太空冒險", "海底世界", "未來城市", "森林探險",
         "恐龍世界", "機器人王國", "動物村派對", "海盜寶藏",
         "異世界冒險"
-    ]
-    return random.choice(topics)
+    ])
 
+# --------------------
 # 房間管理
+# --------------------
 rooms: Dict[str, Set[WebSocket]] = {}
-room_topics: Dict[str, str] = {}       
-room_history: Dict[str, List[dict]] = {}  
+room_topics: Dict[str, str] = {}
+room_history: Dict[str, List[dict]] = {}
 rooms_lock = asyncio.Lock()
+MAX_HISTORY = 5000
 
-# 最大 history 條數
-MAX_HISTORY = int(os.environ.get("MAX_HISTORY", 5000))
-
-# 廣播（排除自己）
 async def broadcast(room_id: str, message: str, sender_ws: WebSocket = None):
     async with rooms_lock:
         sockets = list(rooms.get(room_id, []))
 
-    to_remove = []
+    dead = []
     for ws in sockets:
         if ws is sender_ws:
             continue
         try:
             await ws.send_text(message)
         except Exception:
-            to_remove.append(ws)
+            dead.append(ws)
 
-    if to_remove:
+    if dead:
         async with rooms_lock:
-            for ws in to_remove:
+            for ws in dead:
                 rooms[room_id].discard(ws)
 
-# =====================
-#    WebSocket 端點
-# =====================
+# --------------------
+# WebSocket
+# --------------------
 @app.websocket("/ws/{room_id}")
 async def websocket_endpoint(websocket: WebSocket, room_id: str):
     await websocket.accept()
 
-    # 加入房間
     async with rooms_lock:
         rooms.setdefault(room_id, set()).add(websocket)
-        if room_id not in room_topics:
-            room_topics[room_id] = get_random_topic()
+        room_topics.setdefault(room_id, get_random_topic())
         room_history.setdefault(room_id, [])
 
-    logger.info(f"🟢 WebSocket connected: room={room_id}")
+    # 傳主題
+    await websocket.send_text(json.dumps({
+        "type": "topic",
+        "value": room_topics[room_id]
+    }))
 
-    # 傳送房間主題給新加入者
-    try:
-        await websocket.send_text(json.dumps({
-            "type": "topic",
-            "value": room_topics[room_id]
-        }))
-    except Exception:
-        logger.exception("無法將房間主題發送給新加入者")
-
-    # 重播 history 給新加入者
-    try:
-        async with rooms_lock:
-            history_snapshot = list(room_history.get(room_id, []))
-
-        for entry in history_snapshot:
-            try:
-                await websocket.send_text(json.dumps(entry))
-            except Exception:
-                logger.warning("重播 history 給新加入者時發生錯誤，停止重播")
-                break
-    except Exception:
-        logger.exception("重播 history 時發生例外")
+    # 重播歷史
+    async with rooms_lock:
+        history = list(room_history[room_id])
+    for h in history:
+        await websocket.send_text(json.dumps(h))
 
     try:
         while True:
             raw = await websocket.receive_text()
-            try:
-                payload = json.loads(raw)
-            except Exception:
-                logger.warning("收到非 JSON 訊息，忽略")
-                continue
-
+            payload = json.loads(raw)
             ptype = payload.get("type")
 
-            # 產生主題
-            if ptype == "generateTheme":
-                new_topic = get_random_topic()
-                room_topics[room_id] = new_topic
-                msg = {"type": "topic", "value": new_topic}
-                async with rooms_lock:
-                    room_history.setdefault(room_id, []).append(msg)
-                    if len(room_history[room_id]) > MAX_HISTORY:
-                        room_history[room_id] = room_history[room_id][-MAX_HISTORY:]
+            # ---------------- AI 故事 ----------------
+            if ptype == "aiStory":
+                logger.info("🧠 AI Story requested")
+                story = await generate_ai_story(payload.get("image"))
+
+                msg = {"type": "story", "story": story}
                 await broadcast(room_id, json.dumps(msg))
                 continue
 
-            # 清除畫布
-            if ptype == "clear":
-                async with rooms_lock:
-                    room_history.setdefault(room_id, []).append(payload)
-                    if len(room_history[room_id]) > MAX_HISTORY:
-                        room_history[room_id] = room_history[room_id][-MAX_HISTORY:]
-                await broadcast(room_id, json.dumps(payload), sender_ws=websocket)
+            # ---------------- 主題 ----------------
+            if ptype == "generateTheme":
+                topic = get_random_topic()
+                room_topics[room_id] = topic
+                msg = {"type": "topic", "value": topic}
+                room_history[room_id].append(msg)
+                await broadcast(room_id, json.dumps(msg))
                 continue
 
-            # 一般畫筆事件
-            if ptype == "draw":
-                async with rooms_lock:
-                    room_history.setdefault(room_id, []).append(payload)
-                    if len(room_history[room_id]) > MAX_HISTORY:
-                        room_history[room_id] = room_history[room_id][-MAX_HISTORY:]
-                await broadcast(room_id, json.dumps(payload), sender_ws=websocket)
-                continue
+            # ---------------- 畫畫 / clear ----------------
+            room_history[room_id].append(payload)
+            if len(room_history[room_id]) > MAX_HISTORY:
+                room_history[room_id] = room_history[room_id][-MAX_HISTORY:]
 
-            # 其他未知 type
-            async with rooms_lock:
-                room_history.setdefault(room_id, []).append(payload)
-                if len(room_history[room_id]) > MAX_HISTORY:
-                    room_history[room_id] = room_history[room_id][-MAX_HISTORY:]
             await broadcast(room_id, json.dumps(payload), sender_ws=websocket)
 
     except WebSocketDisconnect:
-        logger.info(f"🔴 WebSocket disconnected: room={room_id}")
-    except Exception:
-        logger.exception("WebSocket 處理中發生未預期錯誤")
+        logger.info(f"🔴 disconnect {room_id}")
     finally:
-        # 離線 -> 移除 websocket
         async with rooms_lock:
-            if room_id in rooms:
-                rooms[room_id].discard(websocket)
-                if not rooms[room_id]:
-                    del rooms[room_id]
-                    room_topics.pop(room_id, None)
-                    room_history.pop(room_id, None)
-                    logger.info(f"房間 {room_id} 已經沒有使用者，room_topics/room_history 已刪除")
+            rooms[room_id].discard(websocket)
+            if not rooms[room_id]:
+                rooms.pop(room_id, None)
+                room_topics.pop(room_id, None)
+                room_history.pop(room_id, None)
 
-# =====================
-# 網站首頁
-# =====================
+# --------------------
+# AI Story 核心
+# --------------------
+async def generate_ai_story(base64_image: str):
+    image = base64_image.replace("data:image/png;base64,", "")
+
+    prompt = """
+你是一個互動藝術展覽的 AI 導演。
+請根據這幅即時塗鴉畫，編造一個約 2 分鐘的故事。
+將故事轉為動畫時間軸 JSON。
+不要提畫畫行為，當成一個世界。
+
+只輸出 JSON：
+{
+  "title": "...",
+  "duration": 120,
+  "narration": [{ "time": 0, "text": "..." }],
+  "scenes": [
+    {
+      "time": 0,
+      "duration": 8,
+      "action": "pan|highlight|shake|zoom",
+      "direction": "left|right|up|down",
+      "area": { "x":0,"y":0,"w":300,"h":200 }
+    }
+  ]
+}
+"""
+
+    res = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url",
+                 "image_url": {"url": f"data:image/png;base64,{image}"}}
+            ]
+        }],
+        temperature=0.8
+    )
+
+    try:
+        return json.loads(res.choices[0].message.content)
+    except Exception:
+        return {
+            "title": "AI 故事生成失敗",
+            "duration": 120,
+            "narration": [{"time": 0, "text": "想像仍在延續。"}],
+            "scenes": []
+        }
+
+# --------------------
+# 首頁 & QR
+# --------------------
 @app.get("/", include_in_schema=False)
 async def index():
-    index_file = os.path.join(STATIC_DIR, "index.html")
-    if os.path.exists(index_file):
-        return FileResponse(index_file)
-    return {"error": "static/index.html not found"}
+    return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 
-# 產生一般 QRCode
-@app.get("/qr/{text}")
-def generate_qr(text: str):
-    img = qrcode.make(text)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-    return StreamingResponse(buf, media_type="image/png")
-
-# 產生房間用 QRCode
 @app.get("/qr-room/{room}")
 def qr_room(room: str, name: str = "User"):
-    if RENDER_BASE_URL:
-        base = RENDER_BASE_URL.rstrip("/")
-    else:
-        host = os.environ.get("HOST", "127.0.0.1")
-        port = os.environ.get("PORT", "8000")
-        base = f"http://{host}:{port}"
+    base = RENDER_BASE_URL or "http://127.0.0.1:8000"
     url = f"{base}/static/index.html?room={room}&name={name}"
     img = qrcode.make(url)
     buf = io.BytesIO()
@@ -213,18 +217,11 @@ def qr_room(room: str, name: str = "User"):
     buf.seek(0)
     return StreamingResponse(buf, media_type="image/png")
 
-@app.get("/env")
-def show_env():
-    return {"RENDER_EXTERNAL_URL": os.environ.get("RENDER_EXTERNAL_URL")}
-
-@app.get("/health")
-def health():
-    return {"status": "ok"}
-
-# Render / 開發啟動
+# --------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
 
 
 
