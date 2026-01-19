@@ -201,33 +201,24 @@ function drawFromServer(m){
 
 // 📖 AI 故事
 const storyBox = document.getElementById("storyBox");
+
 aiStory.onclick = async () => {
   storyBox.style.display = "block";
   storyBox.textContent = "🧠 AI 正在生成故事中...";
 
-  try{
-    const res = await fetch("/ai/story",{
-      method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({
+  try {
+    await fetch("/ai/story", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
         room,
         theme: themeText.textContent || "自由創作",
         canvas: canvas.toDataURL()
       })
     });
-aiStory.onclick = async () => {
-  storyBox.style.display = "block";
-  storyBox.textContent = "🧠 AI 正在生成故事中...";
-
-  await fetch("/ai/story", {
-    method: "POST",
-    headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({
-      room,
-      theme: themeText.textContent || "自由創作",
-      canvas: canvas.toDataURL()
-    })
-  });
+  } catch (e) {
+    storyBox.textContent = "❌ 無法產生 AI 故事";
+  }
 };
 
 // -------- 控制模式（滑動） --------
