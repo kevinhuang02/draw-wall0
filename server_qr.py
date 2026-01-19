@@ -13,6 +13,7 @@ import io
 import random
 from typing import Dict, Set, List
 from openai import OpenAI
+from fastapi import Body
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("server_qr")
@@ -200,6 +201,31 @@ async def generate_ai_story(base64_image: str):
             "scenes": []
         }
 
+from fastapi import Body
+
+@app.post("/ai/story")
+async def ai_story(data: dict = Body(...)):
+    """
+    接收前端 canvas base64，回傳文字故事
+    """
+    canvas = data.get("canvas")
+    theme = data.get("theme", "自由創作")
+
+    if not canvas:
+        return {"story": "沒有收到畫面，故事無法生成。"}
+
+    story_json = await generate_ai_story(canvas)
+
+    # 把 narration 轉成純文字（給前端顯示）
+    narration = story_json.get("narration", [])
+    story_text = "\n".join(
+        n.get("text", "") for n in narration
+    )
+
+    return {
+        "title": story_json.get("title", "AI 故事"),
+        "story": story_text
+    }
 # --------------------
 # 首頁 & QR
 # --------------------
