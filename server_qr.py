@@ -156,7 +156,7 @@ async def generate_ai_story(base64_image: str):
     image = base64_image.replace("data:image/png;base64,", "")
 
     prompt = """
-你是一個互動藝術展覽的 AI 導演。
+你是一個識別塗鴉的專家，請想像一下圖片裡有哪些物件。
 請根據這幅即時塗鴉畫，編造一個約 2 分鐘的故事。
 將故事轉為動畫時間軸 JSON。
 不要提畫畫行為，當成一個世界。
