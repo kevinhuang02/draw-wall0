@@ -50,7 +50,6 @@
     <button id="save">💾 儲存</button>
     <button id="aiTheme">🎲 主題</button>
     <button id="aiStory">📖 AI 故事</button>
-    <button id="aiAnimate">🎬 AI 動畫</button>
     <span id="themeText" style="margin-left:10px;"></span>
     <button id="controlMode">🎮 控制：關</button>
   </div>
@@ -146,11 +145,6 @@ ws.onmessage = e => {
     storyBox.style.display = "block";
     storyBox.textContent = "📖 " + m.title + "\n\n" + m.story;
   }
-    // 🎬 AI 動畫（先接收）
-  if(m.type === "animation"){
-    console.log("🎬 收到 AI 動畫指令", m.animation);
-    // 之後只要在這裡呼叫 playAnimation(m.animation)
-  
 };
 
 function send(data){
@@ -226,19 +220,6 @@ aiStory.onclick = async () => {
     storyBox.textContent = "❌ 無法產生 AI 故事";
   }
 };
-// 🎬 AI 動畫
-const aiAnimateBtn = document.getElementById("aiAnimate");
-
-aiAnimateBtn.onclick = () => {
-  try {
-    ws.send(JSON.stringify({
-      type: "aiAnimate",
-      image: canvas.toDataURL("image/png")
-    }));
-  } catch (e) {
-    console.error("❌ AI 動畫請求失敗", e);
-  }
-};
 
 // -------- 控制模式（滑動） --------
 let sx=0, sy=0;
@@ -270,6 +251,7 @@ QRCode.toCanvas(qrCode, `${location.origin}?room=${room}`, {width:80});
 </script>
 </body>
 </html>
+
 
 
 

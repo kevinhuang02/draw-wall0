@@ -1,5 +1,5 @@
 # server_qr.py
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Body
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
@@ -13,6 +13,7 @@ import io
 import random
 from typing import Dict, Set, List
 from openai import OpenAI
+from fastapi import Body
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("server_qr")
@@ -113,25 +114,16 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
             payload = json.loads(raw)
             ptype = payload.get("type")
 
-            # -------- AI 故事 --------
+            # ---------------- AI 故事 ----------------
             if ptype == "aiStory":
+                logger.info("🧠 AI Story requested")
                 story = await generate_ai_story(payload.get("image"))
-                await broadcast(room_id, json.dumps({
-                    "type": "story",
-                    "story": story
-                }))
+
+                msg = {"type": "story", "story": story}
+                await broadcast(room_id, json.dumps(msg))
                 continue
 
-            # -------- AI 動畫（新增）--------
-            if ptype == "aiAnimate":
-                animation = await generate_ai_animation(payload.get("image"))
-                await broadcast(room_id, json.dumps({
-                    "type": "animation",
-                    "animation": animation
-                }))
-                continue
-
-            # -------- 主題 --------
+            # ---------------- 主題 ----------------
             if ptype == "generateTheme":
                 topic = get_random_topic()
                 room_topics[room_id] = topic
@@ -140,7 +132,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
                 await broadcast(room_id, json.dumps(msg))
                 continue
 
-            # -------- 畫畫同步 --------
+            # ---------------- 畫畫 / clear ----------------
             room_history[room_id].append(payload)
             if len(room_history[room_id]) > MAX_HISTORY:
                 room_history[room_id] = room_history[room_id][-MAX_HISTORY:]
@@ -148,7 +140,7 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
             await broadcast(room_id, json.dumps(payload), sender_ws=websocket)
 
     except WebSocketDisconnect:
-        pass
+        logger.info(f"🔴 disconnect {room_id}")
     finally:
         async with rooms_lock:
             rooms[room_id].discard(websocket)
@@ -158,57 +150,28 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
                 room_history.pop(room_id, None)
 
 # --------------------
-# AI Story 核心（原本）
+# AI Story 核心
 # --------------------
 async def generate_ai_story(base64_image: str):
     image = base64_image.replace("data:image/png;base64,", "")
 
-    prompt = """（略，與你原本相同）"""
-
-    res = client.chat.completions.create(
-        model="gpt-4.1-mini",
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "text", "text": prompt},
-                {"type": "image_url","image_url":{"url": f"data:image/png;base64,{image}"}}
-            ]
-        }],
-        temperature=0.6
-    )
-
-    raw = res.choices[0].message.content.strip()
-    try:
-        return json.loads(raw)
-    except:
-        pass
-
-    return {
-        "title": "想像世界的小冒險",
-        "duration": 120,
-        "narration": [{ "time": 0, "text": "故事開始了。" }],
-        "scenes": []
-    }
-
-# --------------------
-# AI Animation 核心（新增）
-# --------------------
-async def generate_ai_animation(base64_image: str):
-    image = base64_image.replace("data:image/png;base64,", "")
-
     prompt = """
-你是一個兒童塗鴉動畫導演。
-請根據畫面中實際存在的元素，設計簡單動畫。
-只輸出 JSON，不要解釋。
+你是一個識別塗鴉的專家，請想像一下圖片裡有哪些物件。
+請根據這幅即時塗鴉畫，編造一個約 2 分鐘的故事。
+將故事轉為動畫時間軸 JSON。
+不要提畫畫行為，當成一個世界。
 
-格式：
+只輸出 JSON：
 {
-  "duration": 20,
-  "animations": [
+  "title": "...",
+  "duration": 120,
+  "narration": [{ "time": 0, "text": "..." }],
+  "scenes": [
     {
       "time": 0,
-      "action": "pan|zoom|shake|pulse|fade",
-      "direction": "left|right|up|down|none",
+      "duration": 8,
+      "action": "pan|highlight|shake|zoom",
+      "direction": "left|right|up|down",
       "area": { "x":0,"y":0,"w":300,"h":200 }
     }
   ]
@@ -221,49 +184,58 @@ async def generate_ai_animation(base64_image: str):
             "role": "user",
             "content": [
                 {"type": "text", "text": prompt},
-                {"type": "image_url","image_url":{"url": f"data:image/png;base64,{image}"}}
+                {"type": "image_url",
+                 "image_url": {"url": f"data:image/png;base64,{image}"}}
             ]
         }],
-        temperature=0.4
+        temperature=0.8
     )
 
-    raw = res.choices[0].message.content.strip()
     try:
-        return json.loads(raw)
-    except:
-        return {"duration": 10, "animations": []}
+        return json.loads(res.choices[0].message.content)
+    except Exception:
+        return {
+            "title": "AI 故事生成失敗",
+            "duration": 120,
+            "narration": [{"time": 0, "text": "想像仍在延續。"}],
+            "scenes": []
+        }
 
-# --------------------
-# REST API
-# --------------------
+from fastapi import Body
+
 @app.post("/ai/story")
 async def ai_story(data: dict = Body(...)):
+    """
+    接收前端 canvas base64，回傳文字故事
+    """
     room = data.get("room")
     canvas = data.get("canvas")
-    story = await generate_ai_story(canvas)
+    theme = data.get("theme", "自由創作")
 
-    text = "\n".join(n.get("text","") for n in story.get("narration",[]))
-    await broadcast(room, json.dumps({
+    if not canvas:
+        return {"story": "沒有收到畫面，故事無法生成。"}
+
+    story_json = await generate_ai_story(canvas)
+
+    # 把 narration 轉成純文字（給前端顯示）
+    narration = story_json.get("narration", [])
+    story_text = "\n".join(
+        n.get("text", "") for n in narration
+    )
+# 要同步給所有人用的訊息
+    msg = {
         "type": "story",
-        "title": story.get("title","AI 故事"),
-        "story": text
-    }))
+        "title": story_json.get("title", "AI 故事"),
+        "story": story_text
+    }
 
-    return {"title": story.get("title"), "story": text}
+    # ✅ 關鍵：WebSocket 廣播
+    await broadcast(room, json.dumps(msg))
 
-@app.post("/ai/animate")
-async def ai_animate(data: dict = Body(...)):
-    room = data.get("room")
-    canvas = data.get("canvas")
-    animation = await generate_ai_animation(canvas)
-
-    await broadcast(room, json.dumps({
-        "type": "animation",
-        "animation": animation
-    }))
-
-    return animation
-
+    return {
+        "title": story_json.get("title", "AI 故事"),
+        "story": story_text
+    }
 # --------------------
 # 首頁 & QR
 # --------------------
