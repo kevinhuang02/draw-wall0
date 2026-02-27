@@ -156,48 +156,72 @@ async def generate_ai_story(base64_image: str):
     image = base64_image.replace("data:image/png;base64,", "")
 
     prompt = """
-你是一個識別塗鴉的專家，請想像一下圖片裡有哪些物件。
-請根據這幅即時塗鴉畫，編造一個約 2 分鐘的故事。
-將故事轉為動畫時間軸 JSON。
-不要提畫畫行為，當成一個世界。
+你是一個專業的圖像觀察員。
 
-只輸出 JSON：
+請嚴格依照下面步驟執行：
+
+第一步：
+列出圖片中「實際清楚可見」的物件。
+不要猜測，不要幻想。
+只描述你真的看到的東西。
+
+第二步：
+只能使用第一步列出的物件，
+創作一個 1 分鐘內的簡短動畫故事。
+
+限制：
+- 不可新增圖片中沒有的角色或物件
+- 不可加入宇宙、魔法等超現實元素（除非畫面中真的有）
+- 故事要貼合畫面
+- 動畫場景簡單即可
+
+輸出格式必須是 JSON：
+
 {
   "title": "...",
-  "duration": 120,
+  "duration": 60,
   "narration": [{ "time": 0, "text": "..." }],
   "scenes": [
     {
       "time": 0,
-      "duration": 8,
-      "action": "pan|highlight|shake|zoom",
-      "direction": "left|right|up|down",
+      "duration": 5,
+      "action": "zoom",
+      "direction": "none",
       "area": { "x":0,"y":0,"w":300,"h":200 }
     }
   ]
 }
 """
 
-    res = client.chat.completions.create(
-        model="gpt-4.1-mini",
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "text", "text": prompt},
-                {"type": "image_url",
-                 "image_url": {"url": f"data:image/png;base64,{image}"}}
-            ]
-        }],
-        temperature=0.8
-    )
-
     try:
-        return json.loads(res.choices[0].message.content)
-    except Exception:
+        res = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url",
+                     "image_url": {"url": f"data:image/png;base64,{image}"}}
+                ]
+            }],
+            temperature=0.4,
+            max_tokens=800
+        )
+
+        content = res.choices[0].message.content.strip()
+
+        # 有時模型會包 ```json
+        if content.startswith("```"):
+            content = content.split("```")[1]
+
+        return json.loads(content)
+
+    except Exception as e:
+        logger.error(f"AI 生成失敗: {e}")
         return {
             "title": "AI 故事生成失敗",
-            "duration": 120,
-            "narration": [{"time": 0, "text": "想像仍在延續。"}],
+            "duration": 60,
+            "narration": [{"time": 0, "text": "畫面正在分析中。"}],
             "scenes": []
         }
 
