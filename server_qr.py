@@ -156,7 +156,7 @@ async def generate_ai_story(base64_image: str):
     image = base64_image.replace("data:image/png;base64,", "")
 
     prompt = """
-你是一個專業的圖像觀察員。
+你是一個專業的圖像觀察員與教育型故事創作者。
 
 請嚴格依照下面步驟執行：
 
@@ -175,12 +175,30 @@ async def generate_ai_story(base64_image: str):
 - 故事要貼合畫面
 - 動畫場景簡單即可
 
+第三步（新增）：
+假設畫面被切成「四個格子（四格漫畫）」，
+請根據圖片內容，生成一個：
+
+👉 英文四格漫畫故事（Comic Story）
+👉 每一格要有對應內容
+👉 必須具有「教育意涵」（例如：合作、分享、誠實、環保等）
+
+規則：
+- 只能使用第一步出現的物件
+- 每一格要有簡短英文句子（適合學生閱讀）
+- 故事要連貫
+- 最後一格要有明確的教育結論（moral）
+
 輸出格式必須是 JSON：
 
 {
   "title": "...",
   "duration": 60,
-  "narration": [{ "time": 0, "text": "..." }],
+
+  "narration": [
+    { "time": 0, "text": "..." }
+  ],
+
   "scenes": [
     {
       "time": 0,
@@ -189,7 +207,16 @@ async def generate_ai_story(base64_image: str):
       "direction": "none",
       "area": { "x":0,"y":0,"w":300,"h":200 }
     }
-  ]
+  ],
+
+  "comic": [
+    { "panel": 1, "text": "..." },
+    { "panel": 2, "text": "..." },
+    { "panel": 3, "text": "..." },
+    { "panel": 4, "text": "..." }
+  ],
+
+  "moral": "..."
 }
 """
 
