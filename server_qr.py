@@ -166,47 +166,38 @@ async def generate_ai_story(base64_image: str):
 只描述你真的看到的東西。
 
 第二步：
-只能使用第一步列出的物件，
-創作一個 1 分鐘內的簡短動畫故事。
+判斷圖片是否為「四格漫畫」：
+條件如下：
+- 畫面被清楚分成四個區塊（格子）
+- 每個區塊有不同內容或情節
 
-限制：
+請輸出：
+"is_comic": true 或 false
+
+第三步：
+如果 is_comic = true：
+→ 產生「英文四格漫畫故事」
+→ 每格一個簡短英文句子
+→ 必須有教育意涵（moral）
+
+如果 is_comic = false：
+→ 產生「中文短故事」（約1分鐘）
+→ 故事需貼合圖片內容
+→ 需有教育意涵（moral）
+
+限制（兩種都適用）：
 - 不可新增圖片中沒有的角色或物件
-- 不可加入宇宙、魔法等超現實元素（除非畫面中真的有）
-- 故事要貼合畫面
-- 動畫場景簡單即可
+- 不可加入超現實元素（除非畫面中真的有）
 
-第三步（新增）：
-假設畫面被切成「四個格子（四格漫畫）」，
-請根據圖片內容，生成一個：
-
-👉 英文四格漫畫故事（Comic Story）
-👉 每一格要有對應內容
-👉 必須具有「教育意涵」（例如：合作、分享、誠實、環保等）
-
-規則：
-- 只能使用第一步出現的物件
-- 每一格要有簡短英文句子（適合學生閱讀）
-- 故事要連貫
-- 最後一格要有明確的教育結論（moral）
-
-輸出格式必須是 JSON：
+輸出格式（JSON）：
 
 {
+  "is_comic": true/false,
   "title": "...",
   "duration": 60,
 
   "narration": [
     { "time": 0, "text": "..." }
-  ],
-
-  "scenes": [
-    {
-      "time": 0,
-      "duration": 5,
-      "action": "zoom",
-      "direction": "none",
-      "area": { "x":0,"y":0,"w":300,"h":200 }
-    }
   ],
 
   "comic": [
@@ -219,7 +210,6 @@ async def generate_ai_story(base64_image: str):
   "moral": "..."
 }
 """
-
     try:
         res = client.chat.completions.create(
             model="gpt-4.1-mini",
@@ -269,9 +259,16 @@ async def ai_story(data: dict = Body(...)):
     story_json = await generate_ai_story(canvas)
 
     # 把 narration 轉成純文字（給前端顯示）
-    narration = story_json.get("narration", [])
-    story_text = "\n".join(
-        n.get("text", "") for n in narration
+    if story_json.get("is_comic"):
+    # 四格漫畫 → 用 comic（英文）
+        story_text = "\n".join(
+        f"{c['panel']}. {c['text']}"
+        for c in story_json.get("comic", [])
+    )
+    else:
+    # 一般故事 → 用 narration（中文）
+        story_text = "\n".join(
+        n.get("text", "") for n in story_json.get("narration", [])
     )
 # 要同步給所有人用的訊息
     msg = {
