@@ -166,6 +166,9 @@ async def generate_ai_story(base64_image: str):
 只描述你真的看到的東西。
 
 第二步：
+只能使用第一步列出的物件，
+
+第三步：
 判斷圖片是否為「四格漫畫」：
 條件如下：
 - 畫面被清楚分成四個區塊（格子）
@@ -174,7 +177,7 @@ async def generate_ai_story(base64_image: str):
 請輸出：
 "is_comic": true 或 false
 
-第三步：
+第四步：
 如果 is_comic = true：
 → 產生「英文四格漫畫故事」
 → 每格一個簡短英文句子
