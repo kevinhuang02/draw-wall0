@@ -219,26 +219,30 @@ function drawFromServer(m){
 
 // 📖 AI 故事
 const storyBox = document.getElementById("storyBox");
-
+const themeText = document.createElement("div");
+themeText.style.display = "none";
+document.body.appendChild(themeText);
 aiStory.onclick = async () => {
   storyBox.style.display = "block";
-  storyBox.textContent = "🧠 AI 正在生成故事中...";
-
-  const lang = currentLang; // ⭐ 新增
+  storyBox.textContent = "🧠 AI 生成中...";
 
   try {
-    await fetch("/ai/story", {
+    const res = await fetch("/ai/story", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {"Content-Type":"application/json"},
       body: JSON.stringify({
         room,
-        theme: themeText.textContent || "自由創作",
         canvas: canvas.toDataURL(),
-        lang: lang   // ⭐ 傳給後端
+        lang: currentLang
       })
     });
+
+    const data = await res.json();
+
+    storyBox.textContent = `📖 ${data.title}\n\n${data.story}`;
+
   } catch (e) {
-    storyBox.textContent = "❌ 無法產生 AI 故事";
+    storyBox.textContent = "❌ 生成失敗";
   }
 };
 
