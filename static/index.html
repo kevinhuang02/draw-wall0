@@ -7,7 +7,7 @@
 <style>
   body { margin:0; background:#222; color:#fff; font-family:sans-serif; }
   #toolbar { display:flex; gap:10px; padding:10px; background:#333; align-items:center; justify-content: space-between; }
-  #left-toolbar { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  #left-toolbar { display:flex; gap:10px; align-items:center; flex-wrap:nowrap; }
   #canvas {
     display:block;
     background:#fff;
@@ -36,6 +36,11 @@
     line-height:1.6;
     z-index:999;
   }
+  #langToggle {
+  background:#fff;
+  color:#000;
+  font-weight:bold;
+}
 </style>
 </head>
 <body>
@@ -50,7 +55,7 @@
     <button id="save">💾 儲存</button>
     <button id="aiTheme">🎲 主題</button>
     <button id="aiStory">📖 AI 故事</button>
-    <span id="themeText" style="margin-left:10px;"></span>
+    <button id="langToggle">🌐 中文</button>
     <button id="controlMode">🎮 控制：關</button>
   </div>
   <canvas id="qrCode"></canvas>
@@ -62,6 +67,19 @@
 
 <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
 <script>
+let currentLang = "zh";
+
+const langBtn = document.getElementById("langToggle");
+
+langBtn.onclick = () => {
+  if(currentLang === "zh"){
+    currentLang = "en";
+    langBtn.textContent = "🌐 English";
+  }else{
+    currentLang = "zh";
+    langBtn.textContent = "🌐 中文";
+  }
+};
 // =====================
 // 🔒 虛擬畫布設定
 // =====================
@@ -206,6 +224,8 @@ aiStory.onclick = async () => {
   storyBox.style.display = "block";
   storyBox.textContent = "🧠 AI 正在生成故事中...";
 
+  const lang = currentLang; // ⭐ 新增
+
   try {
     await fetch("/ai/story", {
       method: "POST",
@@ -213,7 +233,8 @@ aiStory.onclick = async () => {
       body: JSON.stringify({
         room,
         theme: themeText.textContent || "自由創作",
-        canvas: canvas.toDataURL()
+        canvas: canvas.toDataURL(),
+        lang: lang   // ⭐ 傳給後端
       })
     });
   } catch (e) {
@@ -251,6 +272,7 @@ QRCode.toCanvas(qrCode, `${location.origin}?room=${room}`, {width:80});
 </script>
 </body>
 </html>
+
 
 
 
