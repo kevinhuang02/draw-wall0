@@ -58,6 +58,7 @@
     <button id="langToggle">🌐 中文</button>
     <button id="controlMode">🎮 控制：關</button>
   </div>
+  <div id="themeText" style="font-size:18px;"></div>
   <canvas id="qrCode"></canvas>
 </div>
 
@@ -96,13 +97,23 @@ const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 
 function resize(){
-  const scaleX = window.innerWidth / VIRTUAL_WIDTH;
-  const scaleY = (window.innerHeight - 60) / VIRTUAL_HEIGHT;
-  const scale = Math.min(scaleX, scaleY);
-  canvas.width = VIRTUAL_WIDTH;
-  canvas.height = VIRTUAL_HEIGHT;
-  canvas.style.width = VIRTUAL_WIDTH * scale + "px";
-  canvas.style.height = VIRTUAL_HEIGHT * scale + "px";
+  const isMobile = window.innerWidth < 768;
+
+  if(isMobile){
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight - 60;
+    canvas.style.width = "100vw";
+    canvas.style.height = "calc(100vh - 60px)";
+  }else{
+    const scaleX = window.innerWidth / VIRTUAL_WIDTH;
+    const scaleY = (window.innerHeight - 60) / VIRTUAL_HEIGHT;
+    const scale = Math.min(scaleX, scaleY);
+
+    canvas.width = VIRTUAL_WIDTH;
+    canvas.height = VIRTUAL_HEIGHT;
+    canvas.style.width = VIRTUAL_WIDTH * scale + "px";
+    canvas.style.height = VIRTUAL_HEIGHT * scale + "px";
+  }
 }
 resize();
 window.addEventListener("resize", resize);
@@ -219,9 +230,7 @@ function drawFromServer(m){
 
 // 📖 AI 故事
 const storyBox = document.getElementById("storyBox");
-const themeText = document.createElement("div");
-themeText.style.display = "none";
-document.body.appendChild(themeText);
+const themeText = document.getElementById("themeText");
 aiStory.onclick = async () => {
   storyBox.style.display = "block";
   storyBox.textContent = "🧠 AI 生成中...";
