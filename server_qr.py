@@ -1,3 +1,4 @@
+# server_qr.py
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Body
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,9 +16,6 @@ import logging
 
 from typing import Dict, Set, List
 
-# --------------------
-# 基本設定
-# --------------------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("server_qr")
 
@@ -34,13 +32,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --------------------
-# OpenAI
-# --------------------
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 # --------------------
-# 靜態檔
+# 靜態
 # --------------------
 RENDER_BASE_URL = os.environ.get("RENDER_EXTERNAL_URL")
 
@@ -61,18 +56,17 @@ def get_random_topic():
     ])
 
 # --------------------
-# 房間資料
+# 房間
 # --------------------
 rooms: Dict[str, Set[WebSocket]] = {}
 room_topics: Dict[str, str] = {}
 room_history: Dict[str, List[dict]] = {}
 rooms_lock = asyncio.Lock()
-MAX_HISTORY = 5000
 
 # --------------------
 # 廣播
 # --------------------
-async def broadcast(room_id: str, message: str, sender_ws: WebSocket = None):
+async def broadcast(room_id: str, message: dict, sender_ws: WebSocket = None):
     async with rooms_lock:
         sockets = list(rooms.get(room_id, []))
 
@@ -81,8 +75,8 @@ async def broadcast(room_id: str, message: str, sender_ws: WebSocket = None):
         if ws is sender_ws:
             continue
         try:
-            await ws.send_text(message)
-        except Exception:
+            await ws.send_text(json.dumps(message))
+        except:
             dead.append(ws)
 
     if dead:
@@ -91,27 +85,22 @@ async def broadcast(room_id: str, message: str, sender_ws: WebSocket = None):
                 rooms[room_id].discard(ws)
 
 # --------------------
-# AI 故事
+# AI
 # --------------------
 async def generate_ai_story(base64_image: str, lang="zh"):
     image = base64_image.replace("data:image/png;base64,", "")
 
     prompt = f"""
-你是一個專業圖像觀察員。
-
-請依序：
-1. 描述畫面可見物件（不可猜）
-2. 只能使用這些物件寫故事
-3. 產生 1 分鐘動畫故事
+請觀察圖片並：
+1. 描述可見物件（不可幻想）
+2. 用這些物件寫一個1分鐘故事
 
 語言：{"中文" if lang == "zh" else "英文"}
 
 輸出 JSON：
 {{
-  "title": "...",
-  "duration": 60,
-  "narration": [{{"time": 0, "text": "..."}}],
-  "scenes": []
+ "title": "...",
+ "narration": [{{"text":"..."}}]
 }}
 """
 
@@ -124,9 +113,7 @@ async def generate_ai_story(base64_image: str, lang="zh"):
                     {"type": "text", "text": prompt},
                     {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image}"}}
                 ]
-            }],
-            temperature=0.4,
-            max_tokens=800
+            }]
         )
 
         content = res.choices[0].message.content.strip()
@@ -137,19 +124,17 @@ async def generate_ai_story(base64_image: str, lang="zh"):
         return json.loads(content)
 
     except Exception as e:
-        logger.error(f"AI error: {e}")
+        logger.error(e)
         return {
-            "title": "AI 故事生成失敗",
-            "duration": 60,
-            "narration": [{"time": 0, "text": "畫面正在分析中"}],
-            "scenes": []
+            "title": "AI 失敗",
+            "narration": [{"text": "生成失敗"}]
         }
 
 # --------------------
 # WebSocket
 # --------------------
 @app.websocket("/ws/{room_id}")
-async def websocket_endpoint(websocket: WebSocket, room_id: str):
+async def ws(websocket: WebSocket, room_id: str):
     await websocket.accept()
 
     async with rooms_lock:
@@ -157,109 +142,61 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
         room_topics.setdefault(room_id, get_random_topic())
         room_history.setdefault(room_id, [])
 
-    # 發送主題
+    # 主題
     await websocket.send_text(json.dumps({
         "type": "topic",
         "value": room_topics[room_id]
     }))
 
-    # 歷史回放
-    async with rooms_lock:
-        history = list(room_history[room_id])
-
-    for h in history:
-        await websocket.send_text(json.dumps(h))
-
     try:
         while True:
-            raw = await websocket.receive_text()
-            payload = json.loads(raw)
-            ptype = payload.get("type")
+            data = json.loads(await websocket.receive_text())
+            t = data.get("type")
 
-            # ---------------- 畫畫 ----------------
-            if ptype == "draw":
-                await broadcast(room_id, json.dumps(payload), websocket)
-                continue
+            if t == "draw":
+                await broadcast(room_id, data, websocket)
 
-            # ---------------- clear ----------------
-            if ptype == "clear":
-                room_history[room_id].append(payload)
-                await broadcast(room_id, json.dumps(payload))
-                continue
+            elif t == "clear":
+                await broadcast(room_id, data)
 
-            # ---------------- AI ----------------
-            if ptype == "aiStory":
-                story = await generate_ai_story(
-                    payload.get("image"),
-                    payload.get("lang", "zh")
-                )
-
-                msg = {"type": "story", "story": story}
-                await broadcast(room_id, json.dumps(msg))
-                continue
-
-            # ---------------- 主題 ----------------
-            if ptype == "generateTheme":
+            elif t == "generateTheme":
                 topic = get_random_topic()
                 room_topics[room_id] = topic
+                await broadcast(room_id, {"type": "topic", "value": topic})
 
-                msg = {"type": "topic", "value": topic}
-                room_history[room_id].append(msg)
+            elif t == "aiStory":
+                story = await generate_ai_story(data["image"], data.get("lang","zh"))
 
-                await broadcast(room_id, json.dumps(msg))
-                continue
+                text = "\n".join(n["text"] for n in story["narration"])
 
-            # ---------------- 預設 ----------------
-            room_history[room_id].append(payload)
-
-            if len(room_history[room_id]) > MAX_HISTORY:
-                room_history[room_id] = room_history[room_id][-MAX_HISTORY:]
-
-            await broadcast(room_id, json.dumps(payload), websocket)
+                await broadcast(room_id, {
+                    "type": "story",
+                    "title": story.get("title","AI 故事"),
+                    "story": text
+                })
 
     except WebSocketDisconnect:
-        logger.info(f"disconnect {room_id}")
-
-    finally:
-        async with rooms_lock:
-            rooms[room_id].discard(websocket)
-
-            if not rooms[room_id]:
-                rooms.pop(room_id, None)
-                room_topics.pop(room_id, None)
-                room_history.pop(room_id, None)
+        pass
 
 # --------------------
-# HTTP API（AI）
+# HTTP AI
 # --------------------
 @app.post("/ai/story")
 async def ai_story(data: dict = Body(...)):
+    story = await generate_ai_story(data["canvas"], data.get("lang","zh"))
 
-    room = data.get("room")
-    canvas = data.get("canvas")
-    lang = data.get("lang", "zh")
-
-    if not canvas:
-        return {"story": "沒有收到畫面"}
-
-    story_json = await generate_ai_story(canvas, lang)
-
-    narration = story_json.get("narration", [])
-    story_text = "\n".join(n.get("text", "") for n in narration)
+    text = "\n".join(n["text"] for n in story["narration"])
 
     msg = {
         "type": "story",
-        "title": story_json.get("title", "AI 故事"),
-        "story": story_text
+        "title": story.get("title","AI 故事"),
+        "story": text
     }
 
-    if room:
-        await broadcast(room, json.dumps(msg))
+    if data.get("room"):
+        await broadcast(data["room"], msg)
 
-    return {
-        "title": story_json.get("title", "AI 故事"),
-        "story": story_text
-    }
+    return msg
 
 # --------------------
 # 首頁
@@ -269,14 +206,14 @@ async def index():
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))
 
 # --------------------
-# QR Code
+# QR
 # --------------------
 @app.get("/qr-room/{room}")
-def qr_room(room: str, name: str = "User"):
+def qr(room: str):
     base = RENDER_BASE_URL or "http://127.0.0.1:8000"
-    url = f"{base}/static/index.html?room={room}&name={name}"
-
+    url = f"{base}?room={room}"
     img = qrcode.make(url)
+
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
@@ -285,8 +222,7 @@ def qr_room(room: str, name: str = "User"):
 
 # --------------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 
 
 
