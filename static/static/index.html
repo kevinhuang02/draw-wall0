@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>多人畫畫同步</title>
+<style>
+  body { margin:0; background:#222; color:#fff; font-family:sans-serif; }
+  #toolbar { display:flex; gap:10px; padding:10px; background:#333; align-items:center; justify-content: space-between; }
+  #left-toolbar { display:flex; gap:10px; align-items:center; flex-wrap:nowrap; }
+  #canvas {
+    display:block;
+    background:#fff;
+    touch-action:none;
+    margin:0 auto;
+  }
+  button,input[type=color],input[type=range] {
+    padding:6px; border-radius:6px; border:none;
+  }
+  button { cursor:pointer; }
+  #qrCode { width:80px; height:80px; }
+
+  /* 📖 AI 故事區 */
+  #storyBox {
+    position:fixed;
+    bottom:0;
+    left:0;
+    right:0;
+    max-height:40%;
+    overflow:auto;
+    background:rgba(0,0,0,0.85);
+    color:#fff;
+    padding:16px;
+    font-size:18px;
+    display:none;
+    line-height:1.6;
+    z-index:999;
+  }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <div id="left-toolbar">
+    <button id="pen">✏️ 筆刷</button>
+    <button id="eraser">🧽 橡皮擦</button>
+    <input type="color" id="colorPicker" value="#000000">
+    <input type="range" id="sizePicker" min="2" max="40" value="5">
+    <button id="clear">🗑️ 清除</button>
+    <button id="save">💾 儲存</button>
+    <button id="aiTheme">🎲 主題</button>
+    <button id="aiStory">📖 AI 故事</button>
+    <span id="themeText" style="margin-left:10px;"></span>
+    <select id="langSelect">
+  <option value="zh">中文</option>
+  <option value="en">English</option>
+</select>
+    <button id="controlMode">🎮 控制：關</button>
+  </div>
+  <canvas id="qrCode"></canvas>
+</div>
+
+<canvas id="canvas"></canvas>
+
+<div id="storyBox"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+<script>
+// =====================
+// 🔒 虛擬畫布設定
+// =====================
+const VIRTUAL_WIDTH = 1920;
+const VIRTUAL_HEIGHT = 1080;
+
+// URL 參數
+const params = new URLSearchParams(location.search);
+const room = params.get("room") || "room1";
+const name = params.get("name") || "user_" + Math.floor(Math.random()*9999);
+
+// Canvas
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+function resize(){
+  const scaleX = window.innerWidth / VIRTUAL_WIDTH;
+  const scaleY = (window.innerHeight - 60) / VIRTUAL_HEIGHT;
+  const scale = Math.min(scaleX, scaleY);
+  canvas.width = VIRTUAL_WIDTH;
+  canvas.height = VIRTUAL_HEIGHT;
+  canvas.style.width = VIRTUAL_WIDTH * scale + "px";
+  canvas.style.height = VIRTUAL_HEIGHT * scale + "px";
+}
+resize();
+window.addEventListener("resize", resize);
+
+// 座標轉換
+function getVirtualPos(e){
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: (e.clientX - rect.left) * (VIRTUAL_WIDTH / rect.width),
+    y: (e.clientY - rect.top) * (VIRTUAL_HEIGHT / rect.height)
+  };
+}
+
+// 狀態
+let drawing = false;
+let mode = "pen";
+let currentColor = colorPicker.value;
+let currentSize = sizePicker.value;
+let lastX = 0, lastY = 0;
+let strokeId = null;
+let controlModeActive = false;
+
+// 工具
+pen.onclick = () => mode="pen";
+eraser.onclick = () => mode="eraser";
+colorPicker.oninput = e => currentColor = e.target.value;
+sizePicker.oninput = e => currentSize = e.target.value;
+
+clear.onclick = () => {
+  ctx.clearRect(0,0,VIRTUAL_WIDTH,VIRTUAL_HEIGHT);
+  send({type:"clear"});
+};
+
+save.onclick = () => {
+  const a = document.createElement("a");
+  a.download = `canvas_${Date.now()}.png`;
+  a.href = canvas.toDataURL();
+  a.click();
+};
+
+aiTheme.onclick = () => send({type:"generateTheme"});
+
+controlMode.onclick = () => {
+  controlModeActive = !controlModeActive;
+  controlMode.textContent = controlModeActive ? "🎮 控制：開" : "🎮 控制：關";
+};
+
+// WebSocket
+const ws = new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/${room}`);
+
+ws.onmessage = e => {
+  const m = JSON.parse(e.data);
+  if(m.type==="draw") drawFromServer(m);
+  if(m.type==="clear") ctx.clearRect(0,0,VIRTUAL_WIDTH,VIRTUAL_HEIGHT);
+  if(m.type==="topic") themeText.textContent = "🎨 " + m.value;
+  // ✅ AI 故事同步顯示
+  if(m.type === "story"){
+    storyBox.style.display = "block";
+    storyBox.textContent = "📖 " + m.title + "\n\n" + m.story;
+  }
+};
+
+function send(data){
+  data.sender = name;
+  ws.send(JSON.stringify(data));
+}
+
+// 畫畫
+const remotePaths = {};
+
+function startDraw(p){
+  drawing = true;
+  lastX = p.x;
+  lastY = p.y;
+  strokeId = Date.now()+"_"+Math.random();
+  send({type:"draw", begin:true, strokeId, mode, color:currentColor, size:currentSize, x:lastX, y:lastY});
+}
+
+function moveDraw(p){
+  drawLine(lastX,lastY,p.x,p.y,mode,currentColor,currentSize);
+  send({type:"draw", strokeId, mode, color:currentColor, size:currentSize, x:p.x, y:p.y});
+  lastX = p.x;
+  lastY = p.y;
+}
+
+canvas.onpointerdown = e => { if(!controlModeActive) startDraw(getVirtualPos(e)); };
+canvas.onpointermove = e => { if(drawing && !controlModeActive) moveDraw(getVirtualPos(e)); };
+canvas.onpointerup = canvas.onpointerleave = () => drawing=false;
+
+// 畫線
+function drawLine(x1,y1,x2,y2,mode,color,size){
+  ctx.lineCap="round";
+  ctx.lineJoin="round";
+  ctx.lineWidth=size;
+  ctx.strokeStyle = mode==="pen" ? color : "#fff";
+  ctx.beginPath();
+  ctx.moveTo(x1,y1);
+  ctx.lineTo(x2,y2);
+  ctx.stroke();
+}
+
+function drawFromServer(m){
+  if(m.sender===name) return;
+  remotePaths[m.sender] ??= {};
+  if(m.begin){
+    remotePaths[m.sender][m.strokeId] = {x:m.x,y:m.y};
+    return;
+  }
+  const p = remotePaths[m.sender][m.strokeId];
+  if(!p) return;
+  drawLine(p.x,p.y,m.x,m.y,m.mode,m.color,m.size);
+  remotePaths[m.sender][m.strokeId] = {x:m.x,y:m.y};
+}
+
+// 📖 AI 故事
+const storyBox = document.getElementById("storyBox");
+
+aiStory.onclick = async () => {
+  storyBox.style.display = "block";
+  storyBox.textContent = "🧠 AI 正在生成故事中...";
+
+  const lang = document.getElementById("langSelect").value; // ⭐ 新增
+
+  try {
+    await fetch("/ai/story", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        room,
+        theme: themeText.textContent || "自由創作",
+        canvas: canvas.toDataURL(),
+        lang: lang   // ⭐ 傳給後端
+      })
+    });
+  } catch (e) {
+    storyBox.textContent = "❌ 無法產生 AI 故事";
+  }
+};
+
+// -------- 控制模式（滑動） --------
+let sx=0, sy=0;
+canvas.addEventListener("touchstart", e=>{
+  if(!controlModeActive) return;
+  const t=e.changedTouches[0];
+  sx=t.pageX; sy=t.pageY;
+});
+canvas.addEventListener("touchend", e=>{
+  if(!controlModeActive) return;
+  const t=e.changedTouches[0];
+  const dx=t.pageX-sx, dy=t.pageY-sy;
+  if(Math.abs(dx)<30 && Math.abs(dy)<30) return;
+  send({type:"moveFocus", direction: Math.abs(dx)>Math.abs(dy) ? (dx>0?"right":"left") : (dy>0?"down":"up")});
+});
+
+// -------- 電視牆焦點 --------
+function drawFocusArea(dir){
+  ctx.clearRect(0,0,VIRTUAL_WIDTH,VIRTUAL_HEIGHT);
+  ctx.fillStyle="rgba(255,200,0,0.25)";
+  if(dir==="up") ctx.fillRect(0,0,VIRTUAL_WIDTH,VIRTUAL_HEIGHT/3);
+  if(dir==="down") ctx.fillRect(0,VIRTUAL_HEIGHT*2/3,VIRTUAL_WIDTH,VIRTUAL_HEIGHT/3);
+  if(dir==="left") ctx.fillRect(0,0,VIRTUAL_WIDTH/3,VIRTUAL_HEIGHT);
+  if(dir==="right") ctx.fillRect(VIRTUAL_WIDTH*2/3,0,VIRTUAL_WIDTH/3,VIRTUAL_HEIGHT);
+}
+
+// -------- QR --------
+QRCode.toCanvas(qrCode, `${location.origin}?room=${room}`, {width:80});
+</script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
