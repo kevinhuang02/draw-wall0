@@ -97,25 +97,17 @@ const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 
 function resize(){
-  const isMobile = window.innerWidth < 768;
-
-  // ⭐ 永遠固定虛擬畫布（超重要）
+  // 固定虛擬畫布解析度（同步關鍵）
   canvas.width = VIRTUAL_WIDTH;
   canvas.height = VIRTUAL_HEIGHT;
 
-  if(isMobile){
-    // 📱 手機：滿版顯示
-    canvas.style.width = "100vw";
-    canvas.style.height = "calc(100vh - 60px)";
-  }else{
-    // 🖥 電腦 / 電視：等比例縮放
-    const scaleX = window.innerWidth / VIRTUAL_WIDTH;
-    const scaleY = (window.innerHeight - 60) / VIRTUAL_HEIGHT;
-    const scale = Math.min(scaleX, scaleY);
+  // 等比例縮放（手機 / 電腦 / 電視都一樣）
+  const scaleX = window.innerWidth / VIRTUAL_WIDTH;
+  const scaleY = (window.innerHeight - 60) / VIRTUAL_HEIGHT;
+  const scale = Math.min(scaleX, scaleY);
 
-    canvas.style.width = VIRTUAL_WIDTH * scale + "px";
-    canvas.style.height = VIRTUAL_HEIGHT * scale + "px";
-  }
+  canvas.style.width = VIRTUAL_WIDTH * scale + "px";
+  canvas.style.height = VIRTUAL_HEIGHT * scale + "px";
 }
 
 resize();
