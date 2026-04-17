@@ -51,6 +51,10 @@
     <button id="aiTheme">🎲 主題</button>
     <button id="aiStory">📖 AI 故事</button>
     <span id="themeText" style="margin-left:10px;"></span>
+    <select id="langSelect">
+  <option value="zh">中文</option>
+  <option value="en">English</option>
+</select>
     <button id="controlMode">🎮 控制：關</button>
   </div>
   <canvas id="qrCode"></canvas>
@@ -206,6 +210,8 @@ aiStory.onclick = async () => {
   storyBox.style.display = "block";
   storyBox.textContent = "🧠 AI 正在生成故事中...";
 
+  const lang = document.getElementById("langSelect").value; // ⭐ 新增
+
   try {
     await fetch("/ai/story", {
       method: "POST",
@@ -213,7 +219,8 @@ aiStory.onclick = async () => {
       body: JSON.stringify({
         room,
         theme: themeText.textContent || "自由創作",
-        canvas: canvas.toDataURL()
+        canvas: canvas.toDataURL(),
+        lang: lang   // ⭐ 傳給後端
       })
     });
   } catch (e) {

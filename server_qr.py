@@ -117,11 +117,15 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
             # ---------------- AI 故事 ----------------
             if ptype == "aiStory":
                 logger.info("🧠 AI Story requested")
-                story = await generate_ai_story(payload.get("image"))
 
-                msg = {"type": "story", "story": story}
-                await broadcast(room_id, json.dumps(msg))
-                continue
+            story = await generate_ai_story(
+            payload.get("image"),
+            payload.get("lang", "zh")  
+            )
+
+            msg = {"type": "story", "story": story}
+            await broadcast(room_id, json.dumps(msg))
+            continue
 
             # ---------------- 主題 ----------------
             if ptype == "generateTheme":
@@ -152,69 +156,43 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str):
 # --------------------
 # AI Story 核心
 # --------------------
-async def generate_ai_story(base64_image: str):
+async def generate_ai_story(base64_image: str, lang="zh"):
     image = base64_image.replace("data:image/png;base64,", "")
 
-    prompt = """
-你是一個專業的圖像觀察員與教育型故事創作者。
+    prompt = f"""
+你是一個專業的圖像觀察員。
 
 請嚴格依照下面步驟執行：
 
 第一步：
 列出圖片中「實際清楚可見」的物件。
 不要猜測，不要幻想。
-只描述你真的看到的東西。
 
 第二步：
-只能使用第一步列出的物件，
+只能使用這些物件創作故事。
 
 第三步：
-嚴格判斷圖片是否為「四格漫畫」。
+產生一個 1 分鐘內的動畫故事。
 
-必須同時符合：
-1. 畫面清楚分成四個獨立格子（有邊框或分隔線）
-2. 格子排列為 2x2 或 1x4
+【語言要求】
+請用 {"中文" if lang == "zh" else "英文"} 輸出故事內容。
 
-如果任一條件不符合 → 一律視為 false
-
-請只輸出：
-"is_comic": true 或 false
-
-第四步：
-如果 is_comic = true：
-→ 產生「英文四格漫畫故事」
-→ 每格一個簡短英文句子
-
-如果 is_comic = false：
-→ 產生「中文短故事」（約1分鐘）
-→ 故事需貼合圖片內容
-
-限制（兩種都適用）：
+限制：
 - 不可新增圖片中沒有的角色或物件
 - 不可加入超現實元素（除非畫面中真的有）
 - 故事要貼合畫面
-- 動畫場景簡單即可
-輸出格式（JSON）：
 
-{
-  "is_comic": true/false,
+輸出格式必須是 JSON：
+
+{{
   "title": "...",
   "duration": 60,
-
   "narration": [
-    { "time": 0, "text": "..." }
-  ],
-
-  "comic": [
-    { "panel": 1, "text": "..." },
-    { "panel": 2, "text": "..." },
-    { "panel": 3, "text": "..." },
-    { "panel": 4, "text": "..." }
-  ],
-
-  "moral": "..."
-}
+    {{ "time": 0, "text": "..." }}
+  ]
+}}
 """
+
     try:
         res = client.chat.completions.create(
             model="gpt-4.1-mini",
@@ -232,7 +210,6 @@ async def generate_ai_story(base64_image: str):
 
         content = res.choices[0].message.content.strip()
 
-        # 有時模型會包 ```json
         if content.startswith("```"):
             content = content.split("```")[1]
 
@@ -246,7 +223,6 @@ async def generate_ai_story(base64_image: str):
             "narration": [{"time": 0, "text": "畫面正在分析中。"}],
             "scenes": []
         }
-
 from fastapi import Body
 
 @app.post("/ai/story")
@@ -257,11 +233,11 @@ async def ai_story(data: dict = Body(...)):
     room = data.get("room")
     canvas = data.get("canvas")
     theme = data.get("theme", "自由創作")
-
+    lang = data.get("lang", "zh")
     if not canvas:
         return {"story": "沒有收到畫面，故事無法生成。"}
 
-    story_json = await generate_ai_story(canvas)
+    story_json = await generate_ai_story(canvas, lang)
 
     # 把 narration 轉成純文字（給前端顯示）
     if story_json.get("is_comic"):
