@@ -264,6 +264,9 @@ async def ai_story(data: dict = Body(...)):
         return {"story": "沒有收到畫面，故事無法生成。"}
 
     story_json = await generate_ai_story(canvas)
+    print("UPLOAD_DIR =", UPLOAD_DIR)
+    print("ABS PATH =", os.path.abspath(UPLOAD_DIR))
+    print("CURRENT DIR =", os.getcwd())
     import base64
     import time
 
