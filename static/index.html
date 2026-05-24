@@ -151,19 +151,9 @@ input[type=range]{
 
   z-index:999;
 }
-  #canvas {
-    display:block;
-    background:#fff;
-    touch-action:none;
-    margin:0 auto;
-  }
   button,input[type=color],input[type=range] {
     padding:6px; border-radius:6px; border:none;  font-size:28px;
   }
-  button {
-  min-width:120px;
-  min-height:60px;
-}
   button { cursor:pointer; }
   #qrCode { width:100px; height:100px; }
 
@@ -194,12 +184,11 @@ input[type=range]{
   transition: all 0.3s ease;
 }
 
-/* 收合狀態 */
+/* 收合狀態（滑出去消失） */
 .collapsed {
-  width: 0 !important;
-  padding: 0 !important;
-  overflow: hidden !important;
+  transform: translateX(-120%);
   opacity: 0;
+  pointer-events: none;
 }
 </style>
 </head>
