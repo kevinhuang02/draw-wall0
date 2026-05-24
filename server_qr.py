@@ -264,7 +264,24 @@ async def ai_story(data: dict = Body(...)):
         return {"story": "沒有收到畫面，故事無法生成。"}
 
     story_json = await generate_ai_story(canvas)
+    import base64
+    import time
 
+    # === 存 canvas 圖片 ===
+    try:
+        img_data = canvas.replace("data:image/png;base64,", "")
+        img_bytes = base64.b64decode(img_data)
+
+        filename = f"{int(time.time())}.png"
+        file_path = os.path.join(UPLOAD_DIR, filename)
+
+        with open(file_path, "wb") as f:
+            f.write(img_bytes)
+
+        logger.info(f"✅ 已儲存圖片: {file_path}")
+
+    except Exception as e:
+        logger.error(f"❌ 存圖失敗: {e}")
     # 把 narration 轉成純文字（給前端顯示）
     if story_json.get("is_comic"):
     # 四格漫畫 → 用 comic（英文）
