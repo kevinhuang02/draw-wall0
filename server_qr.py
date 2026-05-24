@@ -13,7 +13,7 @@ import io
 import random
 from typing import Dict, Set, List
 UPLOAD_DIR = r"C:\PROJECT\my_wall_app\www\uploads\albums\draw"
-makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 from openai import OpenAI
 from fastapi import Body
 
