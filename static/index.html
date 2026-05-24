@@ -8,7 +8,6 @@
   * { box-sizing: border-box; }
   body { margin:0; background:#222; color:#fff; font-family:sans-serif; overflow:hidden; }
 
-  /* ======= 畫布 ======= */
   #canvas {
     display: block;
     background: #fff;
@@ -19,7 +18,6 @@
     transform: translate(-50%, -50%);
   }
 
-  /* ======= 左側工具列 ======= */
   #leftTools {
     position: fixed;
     left: 0; top: 0; bottom: 0;
@@ -36,7 +34,6 @@
   }
   #leftTools.closed { transform: translateX(-200px); }
 
-  /* ======= 右側工具列 ======= */
   #rightTools {
     position: fixed;
     right: 0; top: 0; bottom: 0;
@@ -54,14 +51,12 @@
   }
   #rightTools.closed { transform: translateX(160px); }
 
-  /* ======= 左側手把 ======= */
   #leftHandle {
     position: fixed;
     left: 200px;
     top: 50%;
     transform: translateY(-50%);
-    width: 22px;
-    height: 64px;
+    width: 22px; height: 64px;
     background: rgba(90,70,200,0.8);
     border-radius: 0 12px 12px 0;
     display: flex; align-items: center; justify-content: center;
@@ -75,14 +70,12 @@
   #leftHandle .arrow { transition: transform 0.25s; display:inline-block; }
   #leftHandle.closed .arrow { transform: scaleX(-1); }
 
-  /* ======= 右側手把 ======= */
   #rightHandle {
     position: fixed;
     right: 160px;
     top: 50%;
     transform: translateY(-50%);
-    width: 22px;
-    height: 64px;
+    width: 22px; height: 64px;
     background: rgba(90,70,200,0.8);
     border-radius: 12px 0 0 12px;
     display: flex; align-items: center; justify-content: center;
@@ -96,7 +89,6 @@
   #rightHandle .arrow { transition: transform 0.25s; display:inline-block; }
   #rightHandle.closed .arrow { transform: scaleX(-1); }
 
-  /* ======= 按鈕 ======= */
   .tool-btn {
     width: 100%;
     min-height: 58px;
@@ -114,18 +106,12 @@
   .tool-btn.active { background: rgba(90,70,200,0.6); }
 
   input[type=color] {
-    width: 100%;
-    height: 52px;
-    border: none;
-    border-radius: 12px;
-    cursor: pointer;
-    padding: 4px;
+    width: 100%; height: 52px;
+    border: none; border-radius: 12px;
+    cursor: pointer; padding: 4px;
     background: rgba(255,255,255,0.1);
   }
-  input[type=range] {
-    width: 100%;
-    accent-color: #6450c8;
-  }
+  input[type=range] { width: 100%; accent-color: #6450c8; }
 
   .section-label {
     font-size: 12px;
@@ -137,39 +123,27 @@
 
   #themeText {
     font-size: 20px;
-    text-align: center;
-    color: #fff;
-    font-weight: bold;
-    word-break: break-all;
-    padding: 4px;
+    text-align: center; color: #fff;
+    font-weight: bold; word-break: break-all; padding: 4px;
   }
 
   #qrCode {
     width: 110px; height: 110px;
-    background: #fff;
-    border-radius: 10px;
-    padding: 4px;
+    background: #fff; border-radius: 10px; padding: 4px;
   }
 
-  /* ======= AI 故事區 ======= */
   #storyBox {
     position: fixed;
     bottom: 0; left: 0; right: 0;
-    max-height: 40%;
-    overflow: auto;
-    background: rgba(0,0,0,0.88);
-    color: #fff;
-    padding: 24px 32px;
-    font-size: 36px;
-    display: none;
-    line-height: 1.8;
-    z-index: 200;
+    max-height: 40%; overflow: auto;
+    background: rgba(0,0,0,0.88); color: #fff;
+    padding: 24px 32px; font-size: 36px;
+    display: none; line-height: 1.8; z-index: 200;
   }
 </style>
 </head>
 <body>
 
-<!-- 左側工具列 -->
 <div id="leftTools">
   <div class="section-label">工具</div>
   <button class="tool-btn" id="pen">✏️ 筆刷</button>
@@ -183,7 +157,6 @@
 </div>
 <div id="leftHandle"><span class="arrow">&#x276E;</span></div>
 
-<!-- 右側工具列 -->
 <div id="rightTools">
   <button class="tool-btn" id="aiTheme">🎲 主題</button>
   <button class="tool-btn" id="aiStory">📖 故事</button>
@@ -217,20 +190,44 @@ const name = params.get("name") || "user_" + Math.floor(Math.random() * 9999);
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 
+// ── 關鍵修正：用離屏 canvas 保存畫面內容 ──
+const offscreen = document.createElement("canvas");
+offscreen.width  = VIRTUAL_WIDTH;
+offscreen.height = VIRTUAL_HEIGHT;
+const offCtx = offscreen.getContext("2d");
+
+// 所有畫線都同步寫到離屏 canvas
+function drawLine(x1, y1, x2, y2, m, color, size) {
+  [ctx, offCtx].forEach(c => {
+    c.lineCap = "round"; c.lineJoin = "round"; c.lineWidth = size;
+    c.strokeStyle = m === "pen" ? color : "#fff";
+    c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke();
+  });
+}
+
+// resize 只改 CSS 尺寸，不動 canvas.width/height → 不清空內容
+// 第一次初始化才設定一次解析度
+let canvasInitialized = false;
 function resize() {
-  canvas.width = VIRTUAL_WIDTH;
-  canvas.height = VIRTUAL_HEIGHT;
-  const leftW = leftOpen ? 200 : 0;
+  if (!canvasInitialized) {
+    canvas.width  = VIRTUAL_WIDTH;
+    canvas.height = VIRTUAL_HEIGHT;
+    canvasInitialized = true;
+  }
+  const leftW  = leftOpen  ? 200 : 0;
   const rightW = rightOpen ? 160 : 0;
-  const availW = window.innerWidth - leftW - rightW;
+  const availW = window.innerWidth  - leftW - rightW;
   const availH = window.innerHeight;
-  const scale = Math.min(availW / VIRTUAL_WIDTH, availH / VIRTUAL_HEIGHT);
-  canvas.style.width = VIRTUAL_WIDTH * scale + "px";
+  const scale  = Math.min(availW / VIRTUAL_WIDTH, availH / VIRTUAL_HEIGHT);
+  canvas.style.width  = VIRTUAL_WIDTH  * scale + "px";
   canvas.style.height = VIRTUAL_HEIGHT * scale + "px";
-  // 重新置中（考慮左右工具列偏移）
   const offsetX = (leftW - rightW) / 2;
   canvas.style.left = `calc(50% + ${offsetX}px)`;
+
+  // 把離屏內容還原回主畫布（僅在畫布已有內容時）
+  ctx.drawImage(offscreen, 0, 0);
 }
+
 window.addEventListener("resize", resize);
 
 // ===================== 工具狀態 =====================
@@ -250,77 +247,99 @@ document.getElementById("eraser").onclick = () => {
   document.getElementById("pen").classList.remove("active");
 };
 document.getElementById("colorPicker").oninput = e => currentColor = e.target.value;
-document.getElementById("sizePicker").oninput = e => currentSize = e.target.value;
-document.getElementById("clear").onclick = () => { ctx.clearRect(0,0,VIRTUAL_WIDTH,VIRTUAL_HEIGHT); send({type:"clear"}); };
-document.getElementById("save").onclick = () => { const a=document.createElement("a"); a.download=`canvas_${Date.now()}.png`; a.href=canvas.toDataURL(); a.click(); };
-document.getElementById("aiTheme").onclick = () => send({type:"generateTheme"});
+document.getElementById("sizePicker").oninput  = e => currentSize  = e.target.value;
+
+document.getElementById("clear").onclick = () => {
+  ctx.clearRect(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
+  offCtx.clearRect(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
+  send({ type: "clear" });
+};
+
+document.getElementById("save").onclick = () => {
+  const a = document.createElement("a");
+  a.download = `canvas_${Date.now()}.png`;
+  a.href = canvas.toDataURL();
+  a.click();
+};
+
+document.getElementById("aiTheme").onclick = () => send({ type: "generateTheme" });
 document.getElementById("controlMode").onclick = () => {
   controlModeActive = !controlModeActive;
   document.getElementById("controlMode").textContent = controlModeActive ? "🎮 控制：開" : "🎮 控制：關";
 };
 
 // ===================== WebSocket =====================
-const ws = new WebSocket(`${location.protocol==="https:"?"wss":"ws"}://${location.host}/ws/${room}`);
+const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws/${room}`);
 ws.onmessage = e => {
   const m = JSON.parse(e.data);
-  if (m.type==="draw") drawFromServer(m);
-  if (m.type==="clear") ctx.clearRect(0,0,VIRTUAL_WIDTH,VIRTUAL_HEIGHT);
-  if (m.type==="topic") document.getElementById("themeText").textContent = "🎨 " + m.value;
-  if (m.type==="story") { storyBox.style.display="block"; storyBox.textContent="📖 "+m.title+"\n\n"+m.story; }
+  if (m.type === "draw")  drawFromServer(m);
+  if (m.type === "clear") {
+    ctx.clearRect(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
+    offCtx.clearRect(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
+  }
+  if (m.type === "topic") document.getElementById("themeText").textContent = "🎨 " + m.value;
+  if (m.type === "story") {
+    storyBox.style.display = "block";
+    storyBox.textContent = "📖 " + m.title + "\n\n" + m.story;
+  }
 };
 function send(data) { data.sender = name; ws.send(JSON.stringify(data)); }
 
-// ===================== 畫線 =====================
+// ===================== 座標轉換 & 畫線 =====================
 const remotePaths = {};
 function getVirtualPos(e) {
   const rect = canvas.getBoundingClientRect();
-  return { x:(e.clientX-rect.left)*(VIRTUAL_WIDTH/rect.width), y:(e.clientY-rect.top)*(VIRTUAL_HEIGHT/rect.height) };
+  return {
+    x: (e.clientX - rect.left) * (VIRTUAL_WIDTH  / rect.width),
+    y: (e.clientY - rect.top)  * (VIRTUAL_HEIGHT / rect.height)
+  };
 }
+
 function startDraw(p) {
-  drawing=true; lastX=p.x; lastY=p.y;
-  strokeId=Date.now()+"_"+Math.random();
-  send({type:"draw",begin:true,strokeId,mode,color:currentColor,size:currentSize,x:lastX,y:lastY});
+  drawing = true; lastX = p.x; lastY = p.y;
+  strokeId = Date.now() + "_" + Math.random();
+  send({ type:"draw", begin:true, strokeId, mode, color:currentColor, size:currentSize, x:lastX, y:lastY });
 }
 function moveDraw(p) {
-  drawLine(lastX,lastY,p.x,p.y,mode,currentColor,currentSize);
-  send({type:"draw",strokeId,mode,color:currentColor,size:currentSize,x:p.x,y:p.y});
-  lastX=p.x; lastY=p.y;
+  drawLine(lastX, lastY, p.x, p.y, mode, currentColor, currentSize);
+  send({ type:"draw", strokeId, mode, color:currentColor, size:currentSize, x:p.x, y:p.y });
+  lastX = p.x; lastY = p.y;
 }
-canvas.onpointerdown = e => { if(!controlModeActive) startDraw(getVirtualPos(e)); };
-canvas.onpointermove = e => { if(drawing&&!controlModeActive) moveDraw(getVirtualPos(e)); };
-canvas.onpointerup = canvas.onpointerleave = () => drawing=false;
 
-function drawLine(x1,y1,x2,y2,mode,color,size) {
-  ctx.lineCap="round"; ctx.lineJoin="round"; ctx.lineWidth=size;
-  ctx.strokeStyle = mode==="pen"?color:"#fff";
-  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
-}
+canvas.onpointerdown = e => { if (!controlModeActive) startDraw(getVirtualPos(e)); };
+canvas.onpointermove = e => { if (drawing && !controlModeActive) moveDraw(getVirtualPos(e)); };
+canvas.onpointerup   = canvas.onpointerleave = () => drawing = false;
+
 function drawFromServer(m) {
-  if(m.sender===name) return;
-  remotePaths[m.sender]??={};
-  if(m.begin){remotePaths[m.sender][m.strokeId]={x:m.x,y:m.y};return;}
-  const p=remotePaths[m.sender][m.strokeId]; if(!p) return;
-  drawLine(p.x,p.y,m.x,m.y,m.mode,m.color,m.size);
-  remotePaths[m.sender][m.strokeId]={x:m.x,y:m.y};
+  if (m.sender === name) return;
+  remotePaths[m.sender] ??= {};
+  if (m.begin) { remotePaths[m.sender][m.strokeId] = { x:m.x, y:m.y }; return; }
+  const p = remotePaths[m.sender][m.strokeId]; if (!p) return;
+  drawLine(p.x, p.y, m.x, m.y, m.mode, m.color, m.size);
+  remotePaths[m.sender][m.strokeId] = { x:m.x, y:m.y };
 }
 
 // ===================== AI 故事 =====================
 const storyBox = document.getElementById("storyBox");
 document.getElementById("aiStory").onclick = async () => {
-  storyBox.style.display="block"; storyBox.textContent="🧠 AI 生成中...";
+  storyBox.style.display = "block";
+  storyBox.textContent = "🧠 AI 生成中...";
   try {
-    const res = await fetch("/ai/story",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({room,canvas:canvas.toDataURL(),lang:currentLang})});
+    const res  = await fetch("/ai/story", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ room, canvas: canvas.toDataURL(), lang: currentLang })
+    });
     const data = await res.json();
-    storyBox.textContent=`📖 ${data.title}\n\n${data.story}`;
-  } catch(e) { storyBox.textContent="❌ 生成失敗"; }
+    storyBox.textContent = `📖 ${data.title}\n\n${data.story}`;
+  } catch (e) { storyBox.textContent = "❌ 生成失敗"; }
 };
 
 // ===================== 工具列開關 =====================
-const leftToolsEl = document.getElementById("leftTools");
-const leftHandle  = document.getElementById("leftHandle");
-const rightToolsEl= document.getElementById("rightTools");
-const rightHandle = document.getElementById("rightHandle");
+const leftToolsEl  = document.getElementById("leftTools");
+const leftHandle   = document.getElementById("leftHandle");
+const rightToolsEl = document.getElementById("rightTools");
+const rightHandle  = document.getElementById("rightHandle");
 
 let leftOpen = true, rightOpen = true;
 
@@ -337,7 +356,7 @@ function setRight(open) {
   resize();
 }
 
-leftHandle.addEventListener("click", () => setLeft(!leftOpen));
+leftHandle.addEventListener("click",  () => setLeft(!leftOpen));
 rightHandle.addEventListener("click", () => setRight(!rightOpen));
 
 // ===================== 觸控滑動手勢 =====================
@@ -357,42 +376,35 @@ document.addEventListener("touchmove", e => {
   swipeDone = true;
 
   if (controlModeActive) {
-    // 控制模式：全域滑動發送方向
-    send({type:"moveFocus", direction: dx>0?"right":"left"});
+    send({ type: "moveFocus", direction: dx > 0 ? "right" : "left" });
     return;
   }
-
-  // 右滑 → 左邊緣開啟左工具列
-  if (dx > 0 && touchStartX < 50 && !leftOpen) { setLeft(true); return; }
-  // 左滑 → 右邊緣開啟右工具列
-  if (dx < 0 && touchStartX > window.innerWidth - 50 && !rightOpen) { setRight(true); return; }
-  // 左滑 → 關閉左工具列
-  if (dx < 0 && leftOpen && touchStartX < 220) { setLeft(false); return; }
-  // 右滑 → 關閉右工具列
+  if (dx > 0 && touchStartX < 50  && !leftOpen)  { setLeft(true);   return; }
+  if (dx < 0 && touchStartX > window.innerWidth - 50  && !rightOpen) { setRight(true);  return; }
+  if (dx < 0 && leftOpen  && touchStartX < 220) { setLeft(false);  return; }
   if (dx > 0 && rightOpen && touchStartX > window.innerWidth - 180) { setRight(false); return; }
 }, { passive: true });
 
-// 控制模式上下滑
 document.addEventListener("touchend", e => {
   if (!controlModeActive) return;
   const dy = e.changedTouches[0].clientY - touchStartY;
   const dx = e.changedTouches[0].clientX - touchStartX;
   if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 35)
-    send({type:"moveFocus", direction: dy>0?"down":"up"});
+    send({ type: "moveFocus", direction: dy > 0 ? "down" : "up" });
 }, { passive: true });
 
 // ===================== 電視牆焦點 =====================
 function drawFocusArea(dir) {
-  ctx.clearRect(0,0,VIRTUAL_WIDTH,VIRTUAL_HEIGHT);
-  ctx.fillStyle="rgba(255,200,0,0.25)";
-  if(dir==="up")    ctx.fillRect(0,0,VIRTUAL_WIDTH,VIRTUAL_HEIGHT/3);
-  if(dir==="down")  ctx.fillRect(0,VIRTUAL_HEIGHT*2/3,VIRTUAL_WIDTH,VIRTUAL_HEIGHT/3);
-  if(dir==="left")  ctx.fillRect(0,0,VIRTUAL_WIDTH/3,VIRTUAL_HEIGHT);
-  if(dir==="right") ctx.fillRect(VIRTUAL_WIDTH*2/3,0,VIRTUAL_WIDTH/3,VIRTUAL_HEIGHT);
+  ctx.clearRect(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
+  ctx.fillStyle = "rgba(255,200,0,0.25)";
+  if (dir === "up")    ctx.fillRect(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT / 3);
+  if (dir === "down")  ctx.fillRect(0, VIRTUAL_HEIGHT*2/3, VIRTUAL_WIDTH, VIRTUAL_HEIGHT / 3);
+  if (dir === "left")  ctx.fillRect(0, 0, VIRTUAL_WIDTH / 3, VIRTUAL_HEIGHT);
+  if (dir === "right") ctx.fillRect(VIRTUAL_WIDTH*2/3, 0, VIRTUAL_WIDTH / 3, VIRTUAL_HEIGHT);
 }
 
 // ===================== QR =====================
-QRCode.toCanvas(document.getElementById("qrCode"), `${location.origin}?room=${room}`, {width:100});
+QRCode.toCanvas(document.getElementById("qrCode"), `${location.origin}?room=${room}`, { width: 100 });
 
 // 初始化
 resize();
