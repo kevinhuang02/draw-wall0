@@ -188,12 +188,26 @@ input[type=range]{
   color:#000;
   font-weight:bold;
 }
+/* 工具欄收合動畫 */
+#leftTools,
+#rightTools {
+  transition: all 0.3s ease;
+}
+
+/* 收合狀態 */
+.collapsed {
+  width: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  opacity: 0;
+}
 </style>
 </head>
 <body>
 
 <!-- 左側工具列 -->
 <div id="leftTools">
+  <button id="toggleTools">☰ 工具</button>
   <button id="pen">✏️筆刷</button>
   <button id="eraser">🧽橡皮擦</button>
 
@@ -440,7 +454,25 @@ function drawFocusArea(dir){
   if(dir==="left") ctx.fillRect(0,0,VIRTUAL_WIDTH/3,VIRTUAL_HEIGHT);
   if(dir==="right") ctx.fillRect(VIRTUAL_WIDTH*2/3,0,VIRTUAL_WIDTH/3,VIRTUAL_HEIGHT);
 }
+const toggleBtn = document.getElementById("toggleTools");
+const leftTools = document.getElementById("leftTools");
+const rightTools = document.getElementById("rightTools");
 
+let collapsed = false;
+
+toggleBtn.onclick = () => {
+  collapsed = !collapsed;
+
+  if (collapsed) {
+    leftTools.classList.add("collapsed");
+    rightTools.classList.add("collapsed");
+    toggleBtn.textContent = "☰ 開啟工具";
+  } else {
+    leftTools.classList.remove("collapsed");
+    rightTools.classList.remove("collapsed");
+    toggleBtn.textContent = "☰ 工具";
+  }
+};
 // -------- QR --------
 QRCode.toCanvas(qrCode, `${location.origin}?room=${room}`, {width:80});
 </script>
