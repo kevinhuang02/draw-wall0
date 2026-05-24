@@ -9,28 +9,30 @@
 /* =========================
    左側工具列
 ========================= */
-#leftTools{
+#leftTools {
   position:fixed;
+  left:0;
+  top:0;
+  bottom:0;
 
-  left:20px;
-  top:50%;
+  width:220px;
 
-  transform:translateY(-50%);
+  transform: translateX(-100%);
+  transition: transform 0.3s ease;
 
   display:flex;
   flex-direction:column;
-
   gap:14px;
 
   padding:16px;
-
-  background:rgba(0,0,0,0.45);
-
-  border-radius:24px;
-
+  background:rgba(0,0,0,0.6);
   backdrop-filter: blur(10px);
-
   z-index:1000;
+}
+
+/* 打開狀態 */
+#leftTools.open {
+  transform: translateX(0);
 }
 
 /* =========================
@@ -184,19 +186,12 @@ input[type=range]{
   transition: all 0.3s ease;
 }
 
-/* 收合狀態（滑出去消失） */
-.collapsed {
-  transform: translateX(-120%);
-  opacity: 0;
-  pointer-events: none;
-}
 </style>
 </head>
 <body>
 
 <!-- 左側工具列 -->
 <div id="leftTools">
-  <button id="toggleTools">☰ 工具</button>
   <button id="pen">✏️筆刷</button>
   <button id="eraser">🧽橡皮擦</button>
 
@@ -449,6 +444,50 @@ const rightTools = document.getElementById("rightTools");
 
 let collapsed = false;
 
+let toolsOpen = false;
+
+// 開/關
+function openTools(){
+  toolsOpen = true;
+  leftTools.classList.add("open");
+}
+
+function closeTools(){
+  toolsOpen = false;
+  leftTools.classList.remove("open");
+}
+let startX = 0;
+let startY = 0;
+
+// 手指按下
+canvas.addEventListener("touchstart", (e) => {
+  startX = e.touches[0].clientX;
+  startY = e.touches[0].clientY;
+
+  // 👉 如果在左邊 30px 內，允許開啟
+  if (startX < 30) {
+    openTools();
+  }
+});
+
+// 手指滑動結束（右滑關閉）
+canvas.addEventListener("touchend", (e) => {
+  const endX = e.changedTouches[0].clientX;
+  const diff = endX - startX;
+
+  // 👉 右滑關閉
+  if (diff < -50) {
+    closeTools();
+  }
+
+  // 👉 左邊緣右滑開啟
+  if (startX < 30 && diff > 50) {
+    openTools();
+  }
+});
+canvas.addEventListener("pointerdown", () => {
+  if (toolsOpen) closeTools();
+});
 toggleBtn.onclick = () => {
   collapsed = !collapsed;
 
