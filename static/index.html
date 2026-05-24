@@ -5,504 +5,398 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>多人畫畫同步</title>
 <style>
-  body { margin:0; background:#222; color:#fff; font-family:sans-serif; }
-/* =========================
-   左側工具列
-========================= */
-#leftTools {
-  position:fixed;
-  left:0;
-  top:0;
-  bottom:0;
+  * { box-sizing: border-box; }
+  body { margin:0; background:#222; color:#fff; font-family:sans-serif; overflow:hidden; }
 
-  width:220px;
-
-  transform: translateX(-100%);
-  transition: transform 0.3s ease;
-
-  display:flex;
-  flex-direction:column;
-  gap:14px;
-
-  padding:16px;
-  background:rgba(0,0,0,0.6);
-  backdrop-filter: blur(10px);
-  z-index:1000;
-}
-
-/* 打開狀態 */
-#leftTools.open {
-  transform: translateX(0);
-}
-
-/* =========================
-   右側工具列
-========================= */
-#rightTools{
-  position:fixed;
-
-  right:20px;
-  top:50%;
-
-  transform:translateY(-50%);
-
-  display:flex;
-  flex-direction:column;
-
-  align-items:center;
-
-  gap:14px;
-
-  padding:16px;
-
-  background:rgba(0,0,0,0.45);
-
-  border-radius:24px;
-
-  backdrop-filter: blur(10px);
-
-  z-index:1000;
-}
-
-/* =========================
-   畫布
-========================= */
-#canvas{
-  display:block;
-
-  background:#fff;
-
-  touch-action:none;
-
-  margin:auto;
-}
-
-/* =========================
-   按鈕
-========================= */
-button,
-input[type=color],
-input[type=range]{
-
-  width:180px;
-
-  min-height:70px;
-
-  border:none;
-
-  border-radius:16px;
-
-  font-size:30px;
-
-  cursor:pointer;
-}
-
-/* AI 主題 */
-#themeText{
-  font-size:36px;
-
-  text-align:center;
-
-  color:#fff;
-
-  font-weight:bold;
-
-  max-width:180px;
-}
-
-/* QR */
-#qrCode{
-  width:120px;
-  height:120px;
-
-  background:#fff;
-
-  border-radius:12px;
-}
-
-/* 語言按鈕 */
-#langToggle{
-  background:#fff;
-  color:#000;
-  font-weight:bold;
-}
-
-/* AI 故事 */
-#storyBox{
-  position:fixed;
-
-  bottom:0;
-  left:0;
-  right:0;
-
-  max-height:40%;
-
-  overflow:auto;
-
-  background:rgba(0,0,0,0.88);
-
-  color:#fff;
-
-  padding:30px;
-
-  font-size:40px;
-
-  line-height:1.8;
-
-  display:none;
-
-  z-index:999;
-}
-  button,input[type=color],input[type=range] {
-    padding:6px; border-radius:6px; border:none;  font-size:28px;
+  /* ======= 畫布 ======= */
+  #canvas {
+    display: block;
+    background: #fff;
+    touch-action: none;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
   }
-  button { cursor:pointer; }
-  #qrCode { width:100px; height:100px; }
 
-  /* 📖 AI 故事區 */
+  /* ======= 左側工具列 ======= */
+  #leftTools {
+    position: fixed;
+    left: 0; top: 0; bottom: 0;
+    width: 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px 12px;
+    background: rgba(30,30,40,0.82);
+    backdrop-filter: blur(12px);
+    z-index: 100;
+    transition: transform 0.28s cubic-bezier(.4,0,.2,1);
+    border-right: 1px solid rgba(255,255,255,0.08);
+  }
+  #leftTools.closed { transform: translateX(-200px); }
+
+  /* ======= 右側工具列 ======= */
+  #rightTools {
+    position: fixed;
+    right: 0; top: 0; bottom: 0;
+    width: 160px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 12px;
+    background: rgba(30,30,40,0.82);
+    backdrop-filter: blur(12px);
+    z-index: 100;
+    transition: transform 0.28s cubic-bezier(.4,0,.2,1);
+    border-left: 1px solid rgba(255,255,255,0.08);
+  }
+  #rightTools.closed { transform: translateX(160px); }
+
+  /* ======= 左側手把 ======= */
+  #leftHandle {
+    position: fixed;
+    left: 200px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 22px;
+    height: 64px;
+    background: rgba(90,70,200,0.8);
+    border-radius: 0 12px 12px 0;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    z-index: 101;
+    transition: left 0.28s cubic-bezier(.4,0,.2,1);
+    font-size: 13px; color: #fff;
+    user-select: none;
+  }
+  #leftHandle.closed { left: 0; }
+  #leftHandle .arrow { transition: transform 0.25s; display:inline-block; }
+  #leftHandle.closed .arrow { transform: scaleX(-1); }
+
+  /* ======= 右側手把 ======= */
+  #rightHandle {
+    position: fixed;
+    right: 160px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 22px;
+    height: 64px;
+    background: rgba(90,70,200,0.8);
+    border-radius: 12px 0 0 12px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    z-index: 101;
+    transition: right 0.28s cubic-bezier(.4,0,.2,1);
+    font-size: 13px; color: #fff;
+    user-select: none;
+  }
+  #rightHandle.closed { right: 0; }
+  #rightHandle .arrow { transition: transform 0.25s; display:inline-block; }
+  #rightHandle.closed .arrow { transform: scaleX(-1); }
+
+  /* ======= 按鈕 ======= */
+  .tool-btn {
+    width: 100%;
+    min-height: 58px;
+    border: none;
+    border-radius: 12px;
+    font-size: 22px;
+    cursor: pointer;
+    background: rgba(255,255,255,0.1);
+    color: #fff;
+    transition: background 0.15s;
+    text-align: left;
+    padding: 8px 12px;
+  }
+  .tool-btn:hover { background: rgba(255,255,255,0.2); }
+  .tool-btn.active { background: rgba(90,70,200,0.6); }
+
+  input[type=color] {
+    width: 100%;
+    height: 52px;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    padding: 4px;
+    background: rgba(255,255,255,0.1);
+  }
+  input[type=range] {
+    width: 100%;
+    accent-color: #6450c8;
+  }
+
+  .section-label {
+    font-size: 12px;
+    color: rgba(255,255,255,0.4);
+    padding: 2px 0 0 2px;
+  }
+
+  #langToggle { background: rgba(255,255,255,0.9); color:#000; font-weight:bold; }
+
+  #themeText {
+    font-size: 20px;
+    text-align: center;
+    color: #fff;
+    font-weight: bold;
+    word-break: break-all;
+    padding: 4px;
+  }
+
+  #qrCode {
+    width: 110px; height: 110px;
+    background: #fff;
+    border-radius: 10px;
+    padding: 4px;
+  }
+
+  /* ======= AI 故事區 ======= */
   #storyBox {
-    position:fixed;
-    bottom:0;
-    left:0;
-    right:0;
-    max-height:40%;
-    overflow:auto;
-    background:rgba(0,0,0,0.85);
-    color:#fff;
-    padding:24px;
-    font-size:40px;
-    display:none;
-    line-height:1.8;
-    z-index:999;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    max-height: 40%;
+    overflow: auto;
+    background: rgba(0,0,0,0.88);
+    color: #fff;
+    padding: 24px 32px;
+    font-size: 36px;
+    display: none;
+    line-height: 1.8;
+    z-index: 200;
   }
-  #langToggle {
-  background:#fff;
-  color:#000;
-  font-weight:bold;
-}
-/* 工具欄收合動畫 */
-#leftTools,
-#rightTools {
-  transition: all 0.3s ease;
-}
-
 </style>
 </head>
 <body>
 
 <!-- 左側工具列 -->
 <div id="leftTools">
-  <button id="pen">✏️筆刷</button>
-  <button id="eraser">🧽橡皮擦</button>
-
+  <div class="section-label">工具</div>
+  <button class="tool-btn" id="pen">✏️ 筆刷</button>
+  <button class="tool-btn" id="eraser">🧽 橡皮擦</button>
+  <div class="section-label">顏色</div>
   <input type="color" id="colorPicker" value="#000000">
-
-  <input type="range"
-         id="sizePicker"
-         min="2"
-         max="40"
-         value="5">
-
-  <button id="clear">🗑️清除</button>
-  <button id="save">💾儲存</button>
+  <div class="section-label">筆刷大小</div>
+  <input type="range" id="sizePicker" min="2" max="40" value="5">
+  <button class="tool-btn" id="clear">🗑️ 清除</button>
+  <button class="tool-btn" id="save">💾 儲存</button>
 </div>
+<div id="leftHandle"><span class="arrow">&#x276E;</span></div>
 
 <!-- 右側工具列 -->
 <div id="rightTools">
-  <button id="aiTheme">🎲主題</button>
-
-  <button id="aiStory">📖故事</button>
-
-  <button id="langToggle">
-    🌐 中文
-  </button>
-
-  <button id="controlMode">
-    🎮控制
-  </button>
-
+  <button class="tool-btn" id="aiTheme">🎲 主題</button>
+  <button class="tool-btn" id="aiStory">📖 故事</button>
+  <button class="tool-btn" id="langToggle">🌐 中文</button>
+  <button class="tool-btn" id="controlMode">🎮 控制：關</button>
   <div id="themeText"></div>
-
   <canvas id="qrCode"></canvas>
 </div>
+<div id="rightHandle"><span class="arrow">&#x276F;</span></div>
 
 <canvas id="canvas"></canvas>
-
 <div id="storyBox"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
 <script>
+// ===================== 語言切換 =====================
 let currentLang = "zh";
-
 const langBtn = document.getElementById("langToggle");
-
 langBtn.onclick = () => {
-  if(currentLang === "zh"){
-    currentLang = "en";
-    langBtn.textContent = "🌐 English";
-  }else{
-    currentLang = "zh";
-    langBtn.textContent = "🌐 中文";
-  }
+  currentLang = currentLang === "zh" ? "en" : "zh";
+  langBtn.textContent = currentLang === "zh" ? "🌐 中文" : "🌐 English";
 };
-// =====================
-// 🔒 虛擬畫布設定
-// =====================
+
+// ===================== 虛擬畫布 =====================
 const VIRTUAL_WIDTH = 1920;
 const VIRTUAL_HEIGHT = 1080;
-
-// URL 參數
 const params = new URLSearchParams(location.search);
 const room = params.get("room") || "room1";
-const name = params.get("name") || "user_" + Math.floor(Math.random()*9999);
+const name = params.get("name") || "user_" + Math.floor(Math.random() * 9999);
 
-// Canvas
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
 
-function resize(){
-  // 固定虛擬畫布解析度（同步關鍵）
+function resize() {
   canvas.width = VIRTUAL_WIDTH;
   canvas.height = VIRTUAL_HEIGHT;
-
-  // 等比例縮放（手機 / 電腦 / 電視都一樣）
-  const scaleX = window.innerWidth / VIRTUAL_WIDTH;
-  const scaleY = (window.innerHeight - 60) / VIRTUAL_HEIGHT;
-  const scale = Math.min(scaleX, scaleY);
-
+  const leftW = leftOpen ? 200 : 0;
+  const rightW = rightOpen ? 160 : 0;
+  const availW = window.innerWidth - leftW - rightW;
+  const availH = window.innerHeight;
+  const scale = Math.min(availW / VIRTUAL_WIDTH, availH / VIRTUAL_HEIGHT);
   canvas.style.width = VIRTUAL_WIDTH * scale + "px";
   canvas.style.height = VIRTUAL_HEIGHT * scale + "px";
+  // 重新置中（考慮左右工具列偏移）
+  const offsetX = (leftW - rightW) / 2;
+  canvas.style.left = `calc(50% + ${offsetX}px)`;
 }
-
-resize();
 window.addEventListener("resize", resize);
 
-// 座標轉換
-function getVirtualPos(e){
-  const rect = canvas.getBoundingClientRect();
-  return {
-    x: (e.clientX - rect.left) * (VIRTUAL_WIDTH / rect.width),
-    y: (e.clientY - rect.top) * (VIRTUAL_HEIGHT / rect.height)
-  };
-}
-
-// 狀態
-let drawing = false;
-let mode = "pen";
-let currentColor = colorPicker.value;
-let currentSize = sizePicker.value;
-let lastX = 0, lastY = 0;
-let strokeId = null;
+// ===================== 工具狀態 =====================
+let drawing = false, mode = "pen";
+let currentColor = "#000000", currentSize = 5;
+let lastX = 0, lastY = 0, strokeId = null;
 let controlModeActive = false;
 
-// 工具
-pen.onclick = () => mode="pen";
-eraser.onclick = () => mode="eraser";
-colorPicker.oninput = e => currentColor = e.target.value;
-sizePicker.oninput = e => currentSize = e.target.value;
-
-clear.onclick = () => {
-  ctx.clearRect(0,0,VIRTUAL_WIDTH,VIRTUAL_HEIGHT);
-  send({type:"clear"});
+document.getElementById("pen").onclick = () => {
+  mode = "pen";
+  document.getElementById("pen").classList.add("active");
+  document.getElementById("eraser").classList.remove("active");
 };
-
-save.onclick = () => {
-  const a = document.createElement("a");
-  a.download = `canvas_${Date.now()}.png`;
-  a.href = canvas.toDataURL();
-  a.click();
+document.getElementById("eraser").onclick = () => {
+  mode = "eraser";
+  document.getElementById("eraser").classList.add("active");
+  document.getElementById("pen").classList.remove("active");
 };
-
-aiTheme.onclick = () => send({type:"generateTheme"});
-
-controlMode.onclick = () => {
+document.getElementById("colorPicker").oninput = e => currentColor = e.target.value;
+document.getElementById("sizePicker").oninput = e => currentSize = e.target.value;
+document.getElementById("clear").onclick = () => { ctx.clearRect(0,0,VIRTUAL_WIDTH,VIRTUAL_HEIGHT); send({type:"clear"}); };
+document.getElementById("save").onclick = () => { const a=document.createElement("a"); a.download=`canvas_${Date.now()}.png`; a.href=canvas.toDataURL(); a.click(); };
+document.getElementById("aiTheme").onclick = () => send({type:"generateTheme"});
+document.getElementById("controlMode").onclick = () => {
   controlModeActive = !controlModeActive;
-  controlMode.textContent = controlModeActive ? "🎮 控制：開" : "🎮 控制：關";
+  document.getElementById("controlMode").textContent = controlModeActive ? "🎮 控制：開" : "🎮 控制：關";
 };
 
-// WebSocket
-const ws = new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/${room}`);
-
+// ===================== WebSocket =====================
+const ws = new WebSocket(`${location.protocol==="https:"?"wss":"ws"}://${location.host}/ws/${room}`);
 ws.onmessage = e => {
   const m = JSON.parse(e.data);
-  if(m.type==="draw") drawFromServer(m);
-  if(m.type==="clear") ctx.clearRect(0,0,VIRTUAL_WIDTH,VIRTUAL_HEIGHT);
-  if(m.type==="topic") themeText.textContent = "🎨 " + m.value;
-  // ✅ AI 故事同步顯示
-  if(m.type === "story"){
-    storyBox.style.display = "block";
-    storyBox.textContent = "📖 " + m.title + "\n\n" + m.story;
-  }
+  if (m.type==="draw") drawFromServer(m);
+  if (m.type==="clear") ctx.clearRect(0,0,VIRTUAL_WIDTH,VIRTUAL_HEIGHT);
+  if (m.type==="topic") document.getElementById("themeText").textContent = "🎨 " + m.value;
+  if (m.type==="story") { storyBox.style.display="block"; storyBox.textContent="📖 "+m.title+"\n\n"+m.story; }
 };
+function send(data) { data.sender = name; ws.send(JSON.stringify(data)); }
 
-function send(data){
-  data.sender = name;
-  ws.send(JSON.stringify(data));
-}
-
-// 畫畫
+// ===================== 畫線 =====================
 const remotePaths = {};
-
-function startDraw(p){
-  drawing = true;
-  lastX = p.x;
-  lastY = p.y;
-  strokeId = Date.now()+"_"+Math.random();
-  send({type:"draw", begin:true, strokeId, mode, color:currentColor, size:currentSize, x:lastX, y:lastY});
+function getVirtualPos(e) {
+  const rect = canvas.getBoundingClientRect();
+  return { x:(e.clientX-rect.left)*(VIRTUAL_WIDTH/rect.width), y:(e.clientY-rect.top)*(VIRTUAL_HEIGHT/rect.height) };
 }
-
-function moveDraw(p){
+function startDraw(p) {
+  drawing=true; lastX=p.x; lastY=p.y;
+  strokeId=Date.now()+"_"+Math.random();
+  send({type:"draw",begin:true,strokeId,mode,color:currentColor,size:currentSize,x:lastX,y:lastY});
+}
+function moveDraw(p) {
   drawLine(lastX,lastY,p.x,p.y,mode,currentColor,currentSize);
-  send({type:"draw", strokeId, mode, color:currentColor, size:currentSize, x:p.x, y:p.y});
-  lastX = p.x;
-  lastY = p.y;
+  send({type:"draw",strokeId,mode,color:currentColor,size:currentSize,x:p.x,y:p.y});
+  lastX=p.x; lastY=p.y;
 }
-
 canvas.onpointerdown = e => { if(!controlModeActive) startDraw(getVirtualPos(e)); };
-canvas.onpointermove = e => { if(drawing && !controlModeActive) moveDraw(getVirtualPos(e)); };
+canvas.onpointermove = e => { if(drawing&&!controlModeActive) moveDraw(getVirtualPos(e)); };
 canvas.onpointerup = canvas.onpointerleave = () => drawing=false;
 
-// 畫線
-function drawLine(x1,y1,x2,y2,mode,color,size){
-  ctx.lineCap="round";
-  ctx.lineJoin="round";
-  ctx.lineWidth=size;
-  ctx.strokeStyle = mode==="pen" ? color : "#fff";
-  ctx.beginPath();
-  ctx.moveTo(x1,y1);
-  ctx.lineTo(x2,y2);
-  ctx.stroke();
+function drawLine(x1,y1,x2,y2,mode,color,size) {
+  ctx.lineCap="round"; ctx.lineJoin="round"; ctx.lineWidth=size;
+  ctx.strokeStyle = mode==="pen"?color:"#fff";
+  ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();
+}
+function drawFromServer(m) {
+  if(m.sender===name) return;
+  remotePaths[m.sender]??={};
+  if(m.begin){remotePaths[m.sender][m.strokeId]={x:m.x,y:m.y};return;}
+  const p=remotePaths[m.sender][m.strokeId]; if(!p) return;
+  drawLine(p.x,p.y,m.x,m.y,m.mode,m.color,m.size);
+  remotePaths[m.sender][m.strokeId]={x:m.x,y:m.y};
 }
 
-function drawFromServer(m){
-  if(m.sender===name) return;
-  remotePaths[m.sender] ??= {};
-  if(m.begin){
-    remotePaths[m.sender][m.strokeId] = {x:m.x,y:m.y};
+// ===================== AI 故事 =====================
+const storyBox = document.getElementById("storyBox");
+document.getElementById("aiStory").onclick = async () => {
+  storyBox.style.display="block"; storyBox.textContent="🧠 AI 生成中...";
+  try {
+    const res = await fetch("/ai/story",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({room,canvas:canvas.toDataURL(),lang:currentLang})});
+    const data = await res.json();
+    storyBox.textContent=`📖 ${data.title}\n\n${data.story}`;
+  } catch(e) { storyBox.textContent="❌ 生成失敗"; }
+};
+
+// ===================== 工具列開關 =====================
+const leftToolsEl = document.getElementById("leftTools");
+const leftHandle  = document.getElementById("leftHandle");
+const rightToolsEl= document.getElementById("rightTools");
+const rightHandle = document.getElementById("rightHandle");
+
+let leftOpen = true, rightOpen = true;
+
+function setLeft(open) {
+  leftOpen = open;
+  leftToolsEl.classList.toggle("closed", !open);
+  leftHandle.classList.toggle("closed", !open);
+  resize();
+}
+function setRight(open) {
+  rightOpen = open;
+  rightToolsEl.classList.toggle("closed", !open);
+  rightHandle.classList.toggle("closed", !open);
+  resize();
+}
+
+leftHandle.addEventListener("click", () => setLeft(!leftOpen));
+rightHandle.addEventListener("click", () => setRight(!rightOpen));
+
+// ===================== 觸控滑動手勢 =====================
+let touchStartX = 0, touchStartY = 0, swipeDone = false;
+
+document.addEventListener("touchstart", e => {
+  touchStartX = e.touches[0].clientX;
+  touchStartY = e.touches[0].clientY;
+  swipeDone = false;
+}, { passive: true });
+
+document.addEventListener("touchmove", e => {
+  if (swipeDone) return;
+  const dx = e.touches[0].clientX - touchStartX;
+  const dy = e.touches[0].clientY - touchStartY;
+  if (Math.abs(dx) < 35 || Math.abs(dx) < Math.abs(dy)) return;
+  swipeDone = true;
+
+  if (controlModeActive) {
+    // 控制模式：全域滑動發送方向
+    send({type:"moveFocus", direction: dx>0?"right":"left"});
     return;
   }
-  const p = remotePaths[m.sender][m.strokeId];
-  if(!p) return;
-  drawLine(p.x,p.y,m.x,m.y,m.mode,m.color,m.size);
-  remotePaths[m.sender][m.strokeId] = {x:m.x,y:m.y};
-}
 
-// 📖 AI 故事
-const storyBox = document.getElementById("storyBox");
-const themeText = document.getElementById("themeText");
-aiStory.onclick = async () => {
-  storyBox.style.display = "block";
-  storyBox.textContent = "🧠 AI 生成中...";
+  // 右滑 → 左邊緣開啟左工具列
+  if (dx > 0 && touchStartX < 50 && !leftOpen) { setLeft(true); return; }
+  // 左滑 → 右邊緣開啟右工具列
+  if (dx < 0 && touchStartX > window.innerWidth - 50 && !rightOpen) { setRight(true); return; }
+  // 左滑 → 關閉左工具列
+  if (dx < 0 && leftOpen && touchStartX < 220) { setLeft(false); return; }
+  // 右滑 → 關閉右工具列
+  if (dx > 0 && rightOpen && touchStartX > window.innerWidth - 180) { setRight(false); return; }
+}, { passive: true });
 
-  try {
-    const res = await fetch("/ai/story", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({
-        room,
-        canvas: canvas.toDataURL(),
-        lang: currentLang
-      })
-    });
+// 控制模式上下滑
+document.addEventListener("touchend", e => {
+  if (!controlModeActive) return;
+  const dy = e.changedTouches[0].clientY - touchStartY;
+  const dx = e.changedTouches[0].clientX - touchStartX;
+  if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 35)
+    send({type:"moveFocus", direction: dy>0?"down":"up"});
+}, { passive: true });
 
-    const data = await res.json();
-
-    storyBox.textContent = `📖 ${data.title}\n\n${data.story}`;
-
-  } catch (e) {
-    storyBox.textContent = "❌ 生成失敗";
-  }
-};
-
-// -------- 控制模式（滑動） --------
-let sx=0, sy=0;
-canvas.addEventListener("touchstart", e=>{
-  if(!controlModeActive) return;
-  const t=e.changedTouches[0];
-  sx=t.pageX; sy=t.pageY;
-});
-canvas.addEventListener("touchend", e=>{
-  if(!controlModeActive) return;
-  const t=e.changedTouches[0];
-  const dx=t.pageX-sx, dy=t.pageY-sy;
-  if(Math.abs(dx)<30 && Math.abs(dy)<30) return;
-  send({type:"moveFocus", direction: Math.abs(dx)>Math.abs(dy) ? (dx>0?"right":"left") : (dy>0?"down":"up")});
-});
-
-// -------- 電視牆焦點 --------
-function drawFocusArea(dir){
+// ===================== 電視牆焦點 =====================
+function drawFocusArea(dir) {
   ctx.clearRect(0,0,VIRTUAL_WIDTH,VIRTUAL_HEIGHT);
   ctx.fillStyle="rgba(255,200,0,0.25)";
-  if(dir==="up") ctx.fillRect(0,0,VIRTUAL_WIDTH,VIRTUAL_HEIGHT/3);
-  if(dir==="down") ctx.fillRect(0,VIRTUAL_HEIGHT*2/3,VIRTUAL_WIDTH,VIRTUAL_HEIGHT/3);
-  if(dir==="left") ctx.fillRect(0,0,VIRTUAL_WIDTH/3,VIRTUAL_HEIGHT);
+  if(dir==="up")    ctx.fillRect(0,0,VIRTUAL_WIDTH,VIRTUAL_HEIGHT/3);
+  if(dir==="down")  ctx.fillRect(0,VIRTUAL_HEIGHT*2/3,VIRTUAL_WIDTH,VIRTUAL_HEIGHT/3);
+  if(dir==="left")  ctx.fillRect(0,0,VIRTUAL_WIDTH/3,VIRTUAL_HEIGHT);
   if(dir==="right") ctx.fillRect(VIRTUAL_WIDTH*2/3,0,VIRTUAL_WIDTH/3,VIRTUAL_HEIGHT);
 }
-const toggleBtn = document.getElementById("toggleTools");
-const leftTools = document.getElementById("leftTools");
-const rightTools = document.getElementById("rightTools");
 
-let collapsed = false;
+// ===================== QR =====================
+QRCode.toCanvas(document.getElementById("qrCode"), `${location.origin}?room=${room}`, {width:100});
 
-let toolsOpen = false;
-
-// 開/關
-function openTools(){
-  toolsOpen = true;
-  leftTools.classList.add("open");
-}
-
-function closeTools(){
-  toolsOpen = false;
-  leftTools.classList.remove("open");
-}
-let startX = 0;
-let startY = 0;
-
-// 手指按下
-canvas.addEventListener("touchstart", (e) => {
-  startX = e.touches[0].clientX;
-  startY = e.touches[0].clientY;
-
-  // 👉 如果在左邊 30px 內，允許開啟
-  if (startX < 30) {
-    openTools();
-  }
-});
-
-// 手指滑動結束（右滑關閉）
-canvas.addEventListener("touchend", (e) => {
-  const endX = e.changedTouches[0].clientX;
-  const diff = endX - startX;
-
-  // 👉 右滑關閉
-  if (diff < -50) {
-    closeTools();
-  }
-
-  // 👉 左邊緣右滑開啟
-  if (startX < 30 && diff > 50) {
-    openTools();
-  }
-});
-canvas.addEventListener("pointerdown", () => {
-  if (toolsOpen) closeTools();
-});
-toggleBtn.onclick = () => {
-  collapsed = !collapsed;
-
-  if (collapsed) {
-    leftTools.classList.add("collapsed");
-    rightTools.classList.add("collapsed");
-    toggleBtn.textContent = "☰ 開啟工具";
-  } else {
-    leftTools.classList.remove("collapsed");
-    rightTools.classList.remove("collapsed");
-    toggleBtn.textContent = "☰ 工具";
-  }
-};
-// -------- QR --------
-QRCode.toCanvas(qrCode, `${location.origin}?room=${room}`, {width:80});
+// 初始化
+resize();
+document.getElementById("pen").classList.add("active");
 </script>
 </body>
 </html>
