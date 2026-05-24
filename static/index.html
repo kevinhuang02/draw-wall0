@@ -6,7 +6,7 @@
 <title>多人畫畫同步</title>
 <style>
   body { margin:0; background:#222; color:#fff; font-family:sans-serif; }
-  #toolbar { display:flex; gap:10px; padding:10px; background:#333; align-items:center; justify-content: space-between; }
+  #toolbar { display:flex; gap:10px; padding:10px; background:#333; align-items:center; justify-content: space-between; font-size:28px; }
   #left-toolbar { display:flex; gap:10px; align-items:center; flex-wrap:nowrap; }
   #canvas {
     display:block;
@@ -15,10 +15,14 @@
     margin:0 auto;
   }
   button,input[type=color],input[type=range] {
-    padding:6px; border-radius:6px; border:none;
+    padding:6px; border-radius:6px; border:none;  font-size:28px;
   }
+  button {
+  min-width:120px;
+  min-height:60px;
+}
   button { cursor:pointer; }
-  #qrCode { width:80px; height:80px; }
+  #qrCode { width:100px; height:100px; }
 
   /* 📖 AI 故事區 */
   #storyBox {
@@ -30,10 +34,10 @@
     overflow:auto;
     background:rgba(0,0,0,0.85);
     color:#fff;
-    padding:16px;
-    font-size:18px;
+    padding:24px;
+    font-size:40px;
     display:none;
-    line-height:1.6;
+    line-height:1.8;
     z-index:999;
   }
   #langToggle {
@@ -58,7 +62,7 @@
     <button id="langToggle">🌐 中文</button>
     <button id="controlMode">🎮 控制：關</button>
   </div>
-  <div id="themeText" style="font-size:18px;"></div>
+  <div id="themeText" style="font-size:40px;"></div>
   <canvas id="qrCode"></canvas>
 </div>
 
