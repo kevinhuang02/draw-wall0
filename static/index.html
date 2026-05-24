@@ -6,8 +6,151 @@
 <title>多人畫畫同步</title>
 <style>
   body { margin:0; background:#222; color:#fff; font-family:sans-serif; }
-  #toolbar { display:flex; gap:10px; padding:10px; background:#333; align-items:center; justify-content: space-between; font-size:28px; }
-  #left-toolbar { display:flex; gap:10px; align-items:center; flex-wrap:nowrap; }
+/* =========================
+   左側工具列
+========================= */
+#leftTools{
+  position:fixed;
+
+  left:20px;
+  top:50%;
+
+  transform:translateY(-50%);
+
+  display:flex;
+  flex-direction:column;
+
+  gap:14px;
+
+  padding:16px;
+
+  background:rgba(0,0,0,0.45);
+
+  border-radius:24px;
+
+  backdrop-filter: blur(10px);
+
+  z-index:1000;
+}
+
+/* =========================
+   右側工具列
+========================= */
+#rightTools{
+  position:fixed;
+
+  right:20px;
+  top:50%;
+
+  transform:translateY(-50%);
+
+  display:flex;
+  flex-direction:column;
+
+  align-items:center;
+
+  gap:14px;
+
+  padding:16px;
+
+  background:rgba(0,0,0,0.45);
+
+  border-radius:24px;
+
+  backdrop-filter: blur(10px);
+
+  z-index:1000;
+}
+
+/* =========================
+   畫布
+========================= */
+#canvas{
+  display:block;
+
+  background:#fff;
+
+  touch-action:none;
+
+  margin:auto;
+}
+
+/* =========================
+   按鈕
+========================= */
+button,
+input[type=color],
+input[type=range]{
+
+  width:100px;
+
+  min-height:70px;
+
+  border:none;
+
+  border-radius:16px;
+
+  font-size:30px;
+
+  cursor:pointer;
+}
+
+/* AI 主題 */
+#themeText{
+  font-size:36px;
+
+  text-align:center;
+
+  color:#fff;
+
+  font-weight:bold;
+
+  max-width:180px;
+}
+
+/* QR */
+#qrCode{
+  width:120px;
+  height:120px;
+
+  background:#fff;
+
+  border-radius:12px;
+}
+
+/* 語言按鈕 */
+#langToggle{
+  background:#fff;
+  color:#000;
+  font-weight:bold;
+}
+
+/* AI 故事 */
+#storyBox{
+  position:fixed;
+
+  bottom:0;
+  left:0;
+  right:0;
+
+  max-height:40%;
+
+  overflow:auto;
+
+  background:rgba(0,0,0,0.88);
+
+  color:#fff;
+
+  padding:30px;
+
+  font-size:40px;
+
+  line-height:1.8;
+
+  display:none;
+
+  z-index:999;
+}
   #canvas {
     display:block;
     background:#fff;
@@ -49,20 +192,39 @@
 </head>
 <body>
 
-<div id="toolbar">
-  <div id="left-toolbar">
-    <button id="pen">✏️ 筆刷</button>
-    <button id="eraser">🧽 橡皮擦</button>
-    <input type="color" id="colorPicker" value="#000000">
-    <input type="range" id="sizePicker" min="2" max="40" value="5">
-    <button id="clear">🗑️ 清除</button>
-    <button id="save">💾 儲存</button>
-    <button id="aiTheme">🎲 主題</button>
-    <button id="aiStory">📖 AI 故事</button>
-    <button id="langToggle">🌐 中文</button>
-    <button id="controlMode">🎮 控制：關</button>
-  </div>
-  <div id="themeText" style="font-size:40px;"></div>
+<!-- 左側工具列 -->
+<div id="leftTools">
+  <button id="pen">✏️</button>
+  <button id="eraser">🧽</button>
+
+  <input type="color" id="colorPicker" value="#000000">
+
+  <input type="range"
+         id="sizePicker"
+         min="2"
+         max="40"
+         value="5">
+
+  <button id="clear">🗑️</button>
+  <button id="save">💾</button>
+</div>
+
+<!-- 右側工具列 -->
+<div id="rightTools">
+  <button id="aiTheme">🎲</button>
+
+  <button id="aiStory">📖</button>
+
+  <button id="langToggle">
+    🌐 中文
+  </button>
+
+  <button id="controlMode">
+    🎮
+  </button>
+
+  <div id="themeText"></div>
+
   <canvas id="qrCode"></canvas>
 </div>
 
