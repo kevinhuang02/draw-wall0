@@ -88,109 +88,158 @@ async def broadcast(room_id: str, message: dict, sender_ws: WebSocket = None):
 # AI
 # --------------------
 async def generate_ai_story(base64_image: str, lang="zh"):
-        print("====================")
-        print("LANG =", lang)
-
     image = base64_image.replace("data:image/png;base64,", "")
 
     prompt = f"""
 你是一個「圖像理解 + 故事生成 AI」。
 
-你的任務是：根據圖片生成合理故事。
+你的任務是根據圖片內容生成故事。
 
 ========================
 【第一步：物件辨識】
 ========================
-請列出畫面中可見的所有物件與角色。
+請辨識圖片中所有看得到的物件與角色。
 
 規則：
-- 只能列出「畫面中看得到的」
-- 可以包含：
-  ✔ 現實物品（桌子、房子、車子）
-  ✔ 想像元素（恐龍、機器人、怪獸、魔法角色）
-- 不可憑空新增不存在的東西
+- 只能列出圖片中實際存在的物件。
+- 不可新增圖片中不存在的角色或物品。
+- 可以辨識想像角色（例如恐龍、機器人、怪獸）。
 
 ========================
-【第二步：世界觀理解（簡化版）】
+【第二步：世界判斷】
 ========================
-請根據畫面自行判斷世界類型：
+判斷圖片屬於哪一種世界：
 
-可能類型：
 - 現實世界
 - 科幻世界
 - 奇幻世界
 - 動物世界
-- 小孩想像世界（很重要）
-
-規則：
-- 不要批判畫面合理性
-- 不要說「不可能」
-- 要把畫面當作「它本來就存在的世界」
+- 小孩想像世界
 
 ========================
 【第三步：故事生成】
 ========================
-只能使用畫面中的物件來寫故事。
+請只使用圖片中的角色與物件寫故事。
 
 規則：
-- 不可新增新角色
-- 可以合理延伸行為（走路、飛、互動）
-- 要符合世界類型
-- 適合 1 分鐘動畫敘事
-- 故事要有開頭 → 發展 → 結尾
+
+- 不可以新增新的角色。
+- 不可以新增圖片沒有出現的物件。
+- 可以合理描述角色互動。
+- 故事長度約一分鐘。
+- 必須有：
+  開頭 → 發展 → 結尾。
 
 ========================
-【輸出格式（必須）】
+【輸出格式】
 ========================
-只輸出 JSON，不可有多餘文字：
+
+只能輸出 JSON。
 
 {{
-  "world": "世界類型",
-  "title": "標題",
-  "objects": ["物件1", "物件2"],
-  "narration": [
-    {{"time": 0, "text": "開場"}},
-    {{"time": 10, "text": "發展"}},
-    {{"time": 20, "text": "變化"}},
-    {{"time": 40, "text": "結尾"}}
+  "world":"",
+  "title":"",
+  "objects":[
+  ],
+  "narration":[
+    {{
+      "time":0,
+      "text":""
+    }},
+    {{
+      "time":10,
+      "text":""
+    }},
+    {{
+      "time":20,
+      "text":""
+    }},
+    {{
+      "time":40,
+      "text":""
+    }}
   ]
 }}
 
 ========================
-【語言】
+【語言（一定要遵守）】
 ========================
-用 {"中文" if lang == "zh" else "英文"} 輸出
+
+如果 lang = "zh"
+
+請全部使用 **繁體中文**。
+
+包括：
+
+- world
+- title
+- objects
+- narration
+
+全部都必須是繁體中文。
+
+不得出現英文。
+
+如果 lang = "en"
+
+Please output everything in English only.
+
+Do not use Chinese.
+
+只輸出 JSON。
 """
 
-
-
     try:
+        print("========== LANG ==========")
+        print(lang)
+
         res = client.chat.completions.create(
             model="gpt-4.1-mini",
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image}"}}
-                ]
-            }]
+            response_format={"type": "json_object"},
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": prompt
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/png;base64,{image}"
+                            }
+                        }
+                    ]
+                }
+            ]
         )
 
         content = res.choices[0].message.content.strip()
+
         print("========== AI 回傳 ==========")
-    print(content)
-    print("=============================")
+        print(content)
 
-        if content.startswith("```"):
-            content = content.split("```")[1]
+        story = json.loads(content)
 
-        return json.loads(content)
+        print("========== JSON ==========")
+        print(story)
+
+        return story
 
     except Exception as e:
-        logger.error(e)
+        logger.exception(e)
+
         return {
-            "title": "AI 失敗",
-            "narration": [{"text": "生成失敗"}]
+            "world": "",
+            "title": "AI 失敗" if lang == "zh" else "AI Failed",
+            "objects": [],
+            "narration": [
+                {
+                    "time": 0,
+                    "text": "生成失敗" if lang == "zh" else "Failed to generate story"
+                }
+            ]
         }
 
 # --------------------
@@ -287,6 +336,5 @@ def qr(room: str):
 # --------------------
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
 
 
