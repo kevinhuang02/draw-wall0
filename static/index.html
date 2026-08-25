@@ -154,6 +154,7 @@
   <input type="range" id="sizePicker" min="2" max="40" value="5">
   <button class="tool-btn" id="clear">🗑️ 清除</button>
   <button class="tool-btn" id="save">💾 儲存</button>
+  <button class="tool-btn" id="exitSite">🚪 離開</button>
 </div>
 <div id="leftHandle"><span class="arrow">&#x276E;</span></div>
 
@@ -161,7 +162,6 @@
   <button class="tool-btn" id="aiTheme">🎲 主題</button>
   <button class="tool-btn" id="aiStory">📖 故事</button>
   <button class="tool-btn" id="langToggle">🌐 中文</button>
-  <button class="tool-btn" id="controlMode">🎮 控制：關</button>
   <div id="themeText"></div>
   <canvas id="qrCode"></canvas>
 </div>
@@ -261,7 +261,11 @@ document.getElementById("save").onclick = () => {
   a.href = canvas.toDataURL();
   a.click();
 };
-
+document.getElementById("exitSite").onclick = () => {
+  if (confirm("確定要離開目前房間並返回首頁嗎？")) {
+    window.location.href = "/";
+  }
+};
 document.getElementById("aiTheme").onclick = () => send({ type: "generateTheme" });
 document.getElementById("controlMode").onclick = () => {
   controlModeActive = !controlModeActive;
