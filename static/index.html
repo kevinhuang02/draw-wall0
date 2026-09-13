@@ -217,11 +217,41 @@ input[type=range] {
   line-height: 1.8;
   z-index: 200;
 }
+/* 返回主頁按鈕 */
+#closeWebsite {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 300;
+
+  padding: 12px 18px;
+  border: none;
+  border-radius: 12px;
+
+  background: rgba(220, 60, 60, 0.9);
+  color: #fff;
+
+  font-size: 18px;
+  font-weight: bold;
+  cursor: pointer;
+
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  transition: background 0.15s, transform 0.15s;
+}
+
+#closeWebsite:hover {
+  background: rgba(240, 70, 70, 1);
+  transform: scale(1.05);
+}
+
+#closeWebsite:active {
+  transform: scale(0.95);
+}
 </style>
 </head>
 
 <body>
-
+<button id="closeWebsite">✕ 關閉網站</button>
 <div id="leftTools">
 
   <div class="section-label">工具</div>
@@ -1026,7 +1056,10 @@ QRCode.toCanvas(
   }
 
 );
-
+// ===================== 關閉網站／返回主頁 =====================
+document.getElementById("closeWebsite").onclick = () => {
+  location.href = "/";
+};
 
 // ===================== 初始化 =====================
 
